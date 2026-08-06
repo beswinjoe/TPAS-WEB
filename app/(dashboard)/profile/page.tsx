@@ -4,8 +4,11 @@ import { useState, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import { formatDate, getInitials } from '@/lib/utils';
-import { User, Phone, Mail, Lock, Camera, Save, Loader2, Eye, EyeOff } from 'lucide-react';
+import { User, Phone, Mail, Lock, Camera, Save, Loader2, Eye, EyeOff, Briefcase, Building2, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
+import { DIVISIONS } from '@/lib/constants';
+
+const ROLES = ['President', 'Secretary', 'Treasurer', 'Member', 'Admin'];
 
 export default function ProfilePage() {
   const { member, updateMember } = useAuth();
@@ -13,6 +16,10 @@ export default function ProfilePage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
+    name: member?.name ?? '',
+    employee_id: member?.employee_id ?? '',
+    division: member?.division ?? '',
+    role: member?.role ?? '',
     phone: member?.phone ?? '',
     email: member?.email ?? '',
   });
@@ -24,16 +31,24 @@ export default function ProfilePage() {
   async function handleProfileSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    const updateData: any = { phone: form.phone, email: form.email };
+    if (member?.role === 'Admin') {
+      updateData.name = form.name;
+      updateData.employee_id = form.employee_id;
+      updateData.division = form.division;
+      updateData.role = form.role;
+    }
+
     const { data, error } = await supabase
       .from('members')
-      .update({ phone: form.phone, email: form.email })
+      .update(updateData)
       .eq('id', member!.id)
       .select()
       .single();
     if (error) {
       toast.error('Failed to update profile.');
     } else {
-      updateMember({ phone: form.phone, email: form.email });
+      updateMember(updateData);
       toast.success('Profile updated successfully!');
     }
     setSaving(false);
@@ -127,20 +142,72 @@ export default function ProfilePage() {
             <h3 className="font-semibold text-foreground">Contact Information</h3>
           </div>
           <form onSubmit={handleProfileSave} className="p-5 space-y-4">
-            {/* Read-only fields */}
-            {[
-              { label: 'Full Name', value: member.name },
-              { label: 'Employee ID', value: member.employee_id },
-              { label: 'Division', value: member.division ?? '—' },
-              { label: 'Role', value: member.role },
-            ].map(({ label, value }) => (
-              <div key={label}>
-                <label className="text-xs font-medium text-muted-foreground block mb-1">{label}</label>
-                <div className="px-3 py-2.5 bg-muted/30 border border-border rounded-xl text-sm text-foreground opacity-70">
-                  {value}
+            {/* Editable for Admin, Read-only for others */}
+            {member.role === 'Admin' ? (
+              <>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">
+                    <User className="w-3.5 h-3.5 inline mr-1" />Full Name
+                  </label>
+                  <input
+                    type="text"
+                    value={form.name}
+                    onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                  />
                 </div>
-              </div>
-            ))}
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">
+                    <CreditCard className="w-3.5 h-3.5 inline mr-1" />Employee ID
+                  </label>
+                  <input
+                    type="text"
+                    value={form.employee_id}
+                    onChange={e => setForm(f => ({ ...f, employee_id: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">
+                    <Building2 className="w-3.5 h-3.5 inline mr-1" />Division
+                  </label>
+                  <select
+                    value={form.division}
+                    onChange={e => setForm(f => ({ ...f, division: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                  >
+                    <option value="">Select Division</option>
+                    {DIVISIONS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">
+                    <Briefcase className="w-3.5 h-3.5 inline mr-1" />Role
+                  </label>
+                  <select
+                    value={form.role}
+                    onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                  >
+                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+              </>
+            ) : (
+              [
+                { label: 'Full Name', value: member.name },
+                { label: 'Employee ID', value: member.employee_id },
+                { label: 'Division', value: member.division ?? '—' },
+                { label: 'Role', value: member.role },
+              ].map(({ label, value }) => (
+                <div key={label}>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">{label}</label>
+                  <div className="px-3 py-2.5 bg-muted/30 border border-border rounded-xl text-sm text-foreground opacity-70">
+                    {value}
+                  </div>
+                </div>
+              ))
+            )}
 
             {/* Editable fields */}
             <div>
