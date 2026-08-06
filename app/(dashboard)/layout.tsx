@@ -1,25 +1,38 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
 import { useAuth } from '@/lib/auth-context';
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import { ALLOWED_ROUTES } from '@/lib/constants';
+import type { Role } from '@/types';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { member, loading } = useAuth();
+  const { member, loading, role } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isAuthorized, setIsAuthorized] = useState(false);
 
   useEffect(() => {
-    if (!loading && !member) {
-      router.replace('/login');
+    if (!loading) {
+      if (!member) {
+        router.replace('/login');
+      } else if (role) {
+        const baseRoute = '/' + (pathname.split('/')[1] || '');
+        const allowed = ALLOWED_ROUTES[role as Role] || [];
+        if (!allowed.includes(baseRoute) && baseRoute !== '/') {
+          router.replace('/dashboard');
+        } else {
+          setIsAuthorized(true);
+        }
+      }
     }
-  }, [member, loading, router]);
+  }, [member, loading, router, pathname, role]);
 
-  if (loading) {
+  if (loading || (!isAuthorized && member)) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
