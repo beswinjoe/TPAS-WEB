@@ -9,7 +9,8 @@ import type { Announcement, Event, Donation, ActivityLog, Role } from '@/types';
 import {
   Users, IndianRupee, CheckCircle2, Clock, CalendarDays,
   Building2, TrendingUp, ArrowRight, Bell, Zap, CreditCard,
-  FileText, UserCheck, BadgeCheck, MapPin, Activity, Award
+  FileText, UserCheck, BadgeCheck, MapPin, Activity, Award,
+  UserPlus, Shield, Megaphone
 } from 'lucide-react';
 import Link from 'next/link';
 import { useCountUp } from '@/lib/hooks';
@@ -102,6 +103,7 @@ export default function DashboardPage() {
   const [recentActivity, setRecentActivity] = useState<ActivityLog[]>([]);
   const [donationTrend, setDonationTrend] = useState<{ year: number; collected: number; pending: number }[]>([]);
   const [divisionChart, setDivisionChart] = useState<{ name: string; members: number }[]>([]);
+  const [lastLogin, setLastLogin] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -112,7 +114,7 @@ export default function DashboardPage() {
     const currentYear = new Date().getFullYear();
     const [
       membersRes, donationsRes, announcementsRes, eventsRes, myDonationRes,
-      divisionsRes, promotionsRes, activityRes, allDonationsRes,
+      divisionsRes, promotionsRes, activityRes, allDonationsRes, lastLoginRes
     ] = await Promise.all([
       supabase.from('members').select('id, status, division', { count: 'exact' }),
       supabase.from('donations').select('id, status, amount').eq('year', currentYear),
@@ -123,6 +125,7 @@ export default function DashboardPage() {
       supabase.from('promotions').select('id').gte('promotion_date', `${currentYear}-01-01`),
       supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(10),
       supabase.from('donations').select('year, status, amount'),
+      supabase.from('activity_logs').select('created_at').eq('member_id', member!.id).eq('action', 'LOGIN').order('created_at', { ascending: false }).limit(2),
     ]);
 
     const total = membersRes.count ?? 0;
@@ -151,6 +154,13 @@ export default function DashboardPage() {
     setEvents((eventsRes.data as Event[]) ?? []);
     setDonationStatus(myDonationRes.data as Donation ?? null);
     setRecentActivity((activityRes.data as ActivityLog[]) ?? []);
+    
+    const loginLogs = lastLoginRes.data ?? [];
+    if (loginLogs.length > 1) {
+      setLastLogin(loginLogs[1].created_at);
+    } else if (loginLogs.length === 1) {
+      setLastLogin(loginLogs[0].created_at);
+    }
 
     // Donation trend by year
     const yearMap: Record<number, { collected: number; pending: number }> = {};
@@ -215,8 +225,8 @@ export default function DashboardPage() {
           </div>
           <div className="flex flex-col gap-2 text-right">
             <div className="text-right">
-              <p className="text-blue-200 text-xs">Member Since</p>
-              <p className="text-white font-semibold text-sm">{formatDate(member?.joining_date)}</p>
+              <p className="text-blue-200 text-xs">Last Login</p>
+              <p className="text-white font-semibold text-sm">{lastLogin ? formatDate(lastLogin) : 'First Login'}</p>
             </div>
             <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${
               donationStatus?.status === 'Paid'
@@ -254,7 +264,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Donation Trend */}
           {donationTrend.length > 0 && (
-            <div className="bg-card rounded-2xl border border-border p-5">
+            <div className="bg-card dark:bg-slate-900/40 rounded-2xl border border-border p-5">
               <div className="flex items-center gap-2 mb-4">
                 <TrendingUp className="w-4.5 h-4.5 text-primary" />
                 <h3 className="font-semibold text-foreground text-sm">Donation Collection Trend</h3>
@@ -275,14 +285,23 @@ export default function DashboardPage() {
 
           {/* Division Distribution */}
           {divisionChart.length > 0 && (
-            <div className="bg-card rounded-2xl border border-border p-5">
+            <div className="bg-card dark:bg-slate-900/40 rounded-2xl border border-border p-5">
               <div className="flex items-center gap-2 mb-4">
                 <MapPin className="w-4.5 h-4.5 text-primary" />
                 <h3 className="font-semibold text-foreground text-sm">Members by Division</h3>
               </div>
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
-                  <Pie data={divisionChart} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="members" paddingAngle={3} label={(props: any) => `${props.name ?? ''}: ${props.value ?? ''}`}>
+                  <Pie 
+                    data={divisionChart} 
+                    cx="50%" 
+                    cy="50%" 
+                    innerRadius={45} 
+                    outerRadius={65} 
+                    dataKey="members" 
+                    paddingAngle={3} 
+                    label={{ fontSize: 10, fill: 'currentColor', fontWeight: 500 }}
+                  >
                     {divisionChart.map((_, i) => (
                       <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                     ))}
@@ -306,40 +325,43 @@ export default function DashboardPage() {
                 <h3 className="font-semibold text-foreground">Recent Activity</h3>
               </div>
             </div>
-            <div className="divide-y divide-border max-h-72 overflow-y-auto scrollbar-thin">
+            <div className="p-5 max-h-[340px] overflow-y-auto scrollbar-thin">
               {loading ? (
-                Array(4).fill(0).map((_, i) => (
-                  <div key={i} className="px-5 py-3 animate-pulse flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-muted" />
-                    <div className="flex-1">
-                      <div className="h-3 w-48 bg-muted rounded mb-1.5" />
-                      <div className="h-2.5 w-20 bg-muted rounded" />
+                <div className="space-y-4">
+                  {Array(4).fill(0).map((_, i) => (
+                    <div key={i} className="animate-pulse flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-muted" />
+                      <div className="flex-1">
+                        <div className="h-3 w-48 bg-muted rounded mb-1.5" />
+                        <div className="h-2.5 w-20 bg-muted rounded" />
+                      </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               ) : recentActivity.length === 0 ? (
-                <div className="px-5 py-10 flex flex-col items-center justify-center text-center">
+                <div className="py-10 flex flex-col items-center justify-center text-center">
                   <Activity className="w-10 h-10 text-muted-foreground/30 mb-3" />
                   <p className="text-foreground font-medium text-sm">No recent activity</p>
                   <p className="text-xs text-muted-foreground mt-1">Activities will appear here once members interact.</p>
                 </div>
               ) : (
-                recentActivity.map((log) => {
-                  const Icon = ACTION_ICONS[log.action] ?? Activity;
-                  const colorClass = ACTION_COLORS[log.action] ?? 'text-gray-500 bg-gray-50 dark:bg-gray-950';
-                  return (
-                    <div key={log.id} className="px-5 py-3 hover:bg-muted/30 transition-colors flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${colorClass}`}>
-                        <Icon className="w-3.5 h-3.5" />
+                <div className="relative border-l-2 border-border ml-3 space-y-5">
+                  {recentActivity.map((log) => {
+                    const Icon = ACTION_ICONS[log.action] ?? Activity;
+                    const colorClass = ACTION_COLORS[log.action] ?? 'text-gray-500 bg-gray-50 dark:bg-gray-950';
+                    return (
+                      <div key={log.id} className="relative pl-6">
+                        <div className={`absolute -left-[17px] top-0.5 w-8 h-8 rounded-full flex items-center justify-center shrink-0 border-4 border-card ${colorClass}`}>
+                          <Icon className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="bg-muted/30 rounded-xl p-3 border border-border/50 hover:bg-muted/50 transition-colors">
+                          <p className="text-sm text-foreground leading-snug">{log.details}</p>
+                          <p className="text-xs text-muted-foreground mt-1 font-medium">{timeAgo(log.created_at)}</p>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-foreground truncate">{log.details}</p>
-                        <p className="text-xs text-muted-foreground/60">{timeAgo(log.created_at)}</p>
-                      </div>
-                      <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">{log.action.replace('_', ' ')}</span>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>
@@ -488,13 +510,25 @@ export default function DashboardPage() {
               <Zap className="w-4.5 h-4.5 text-primary" />
               <h3 className="font-semibold text-foreground">Quick Actions</h3>
             </div>
-            <div className="p-4 grid grid-cols-3 gap-3">
-              <QuickAction label="Pay Donation" href="/donations" icon={IndianRupee} color="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
-              <QuickAction label="My ID Card" href="/digital-id" icon={CreditCard} color="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" />
-              <QuickAction label="Documents" href="/documents" icon={FileText} color="bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400" />
-              <QuickAction label="Members" href="/members" icon={Users} color="bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400" />
-              <QuickAction label="Events" href="/events" icon={CalendarDays} color="bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400" />
-              <QuickAction label="Promotions" href="/promotions" icon={TrendingUp} color="bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400" />
+            <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {(role === 'Admin' || role === 'Secretary') ? (
+                <>
+                  <QuickAction label="Add Member" href="/admin" icon={UserPlus} color="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
+                  {role === 'Admin' && <QuickAction label="Add Donation" href="/donations" icon={IndianRupee} color="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" />}
+                  <QuickAction label="New Announce" href="/announcements" icon={Megaphone} color="bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400" />
+                  <QuickAction label="New Event" href="/events" icon={CalendarDays} color="bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400" />
+                  {role === 'Admin' && <QuickAction label="Admin Panel" href="/admin" icon={Shield} color="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400" />}
+                </>
+              ) : (
+                <>
+                  <QuickAction label="Pay Donation" href="/donations" icon={IndianRupee} color="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
+                  <QuickAction label="My ID Card" href="/digital-id" icon={CreditCard} color="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" />
+                  <QuickAction label="Documents" href="/documents" icon={FileText} color="bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400" />
+                  <QuickAction label="Members" href="/members" icon={Users} color="bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400" />
+                  <QuickAction label="Events" href="/events" icon={CalendarDays} color="bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400" />
+                  <QuickAction label="Promotions" href="/promotions" icon={TrendingUp} color="bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400" />
+                </>
+              )}
             </div>
           </div>
 
