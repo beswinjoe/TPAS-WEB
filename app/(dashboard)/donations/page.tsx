@@ -193,10 +193,10 @@ export default function DonationsPage() {
             <span className="text-xs text-muted-foreground">{showPending ? 'Hide ▲' : 'Show ▼'}</span>
           </button>
           {showPending && (
-            <div className="border-t border-border overflow-x-auto">
+            <div className="border-t border-border overflow-x-auto max-h-[400px] scrollbar-thin">
               <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30">
+                <thead className="sticky top-0 bg-muted/95 backdrop-blur-md z-10 shadow-sm">
+                  <tr className="border-b border-border">
                     {['Member', 'Employee ID', 'Division', 'Phone', 'Amount'].map(h => (
                       <th key={h} className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide px-4 py-3">{h}</th>
                     ))}
@@ -241,10 +241,10 @@ export default function DonationsPage() {
               </button>
             </div>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[500px] scrollbar-thin">
             <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
+              <thead className="sticky top-0 bg-muted/95 backdrop-blur-md z-10 shadow-sm">
+                <tr className="border-b border-border">
                   <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide px-5 py-3">Year</th>
                   <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide px-5 py-3">Amount</th>
                   <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide px-5 py-3">Status</th>

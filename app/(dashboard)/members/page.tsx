@@ -392,7 +392,7 @@ export default function MembersPage() {
             <button
               onClick={() => setPage(p => p - 1)}
               disabled={page === 0}
-              className="p-2 rounded-xl border border-border hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="p-2 rounded-xl border border-border hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors btn-interactive"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -402,7 +402,7 @@ export default function MembersPage() {
               <button
                 key={i}
                 onClick={() => setPage(i)}
-                className={cn('w-9 h-9 rounded-xl text-sm font-medium transition-all',
+                className={cn('w-9 h-9 rounded-xl text-sm font-medium transition-all btn-interactive',
                   i === page ? 'gradient-primary text-white shadow-md' : 'border border-border hover:bg-muted text-muted-foreground'
                 )}
               >
@@ -412,7 +412,7 @@ export default function MembersPage() {
             <button
               onClick={() => setPage(p => p + 1)}
               disabled={page >= totalPages - 1}
-              className="p-2 rounded-xl border border-border hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="p-2 rounded-xl border border-border hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors btn-interactive"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

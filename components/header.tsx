@@ -3,6 +3,7 @@
 import { Menu, Bell, Sun, Moon, Search, ChevronDown, LogOut, User, Settings } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/lib/auth-context';
+import { createClient } from '@/lib/supabase/client';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
@@ -35,15 +36,30 @@ export function Header({ onMobileMenuOpen }: HeaderProps) {
   const { member, role, logout } = useAuth();
   const pathname = usePathname();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [notifMenuOpen, setNotifMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [mounted, setMounted] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    async function loadNotifs() {
+      const supabase = createClient();
+      const { data } = await supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(5);
+      if (data) setNotifications(data);
+    }
+    if (member) loadNotifs();
+  }, [member]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setUserMenuOpen(false);
+      }
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifMenuOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -84,10 +100,36 @@ export function Header({ onMobileMenuOpen }: HeaderProps) {
         )}
 
         {/* Notifications */}
-        <Link href="/notifications" className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground relative">
-          <Bell className="w-4.5 h-4.5" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
-        </Link>
+        <div className="relative" ref={notifRef}>
+          <button
+            onClick={() => setNotifMenuOpen(!notifMenuOpen)}
+            className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground relative btn-interactive"
+          >
+            <Bell className="w-4.5 h-4.5" />
+            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-background" />
+          </button>
+          
+          {notifMenuOpen && (
+            <div className="absolute right-0 top-full mt-2 w-80 bg-card rounded-xl shadow-xl border border-border overflow-hidden animate-slide-up z-50">
+              <div className="px-4 py-3 border-b border-border flex justify-between items-center bg-muted/20">
+                <p className="text-sm font-semibold text-foreground">Recent Notifications</p>
+                <Link href="/notifications" onClick={() => setNotifMenuOpen(false)} className="text-xs text-primary hover:underline font-medium">View all</Link>
+              </div>
+              <div className="divide-y divide-border max-h-[300px] overflow-y-auto scrollbar-thin">
+                {notifications.length === 0 ? (
+                  <p className="text-center text-xs text-muted-foreground py-8">No new notifications</p>
+                ) : (
+                  notifications.map(n => (
+                    <div key={n.id} className="px-4 py-3 hover:bg-muted/50 transition-colors">
+                      <p className="text-xs text-foreground font-medium leading-relaxed">{n.details}</p>
+                      <p className="text-[10px] text-muted-foreground mt-1.5">{new Date(n.created_at).toLocaleDateString()} at {new Date(n.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* User Menu */}
         <div className="relative" ref={menuRef}>
@@ -111,7 +153,7 @@ export function Header({ onMobileMenuOpen }: HeaderProps) {
 
           {/* Dropdown */}
           {userMenuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-card rounded-xl shadow-xl border border-border overflow-hidden animate-fade-in z-50">
+            <div className="absolute right-0 top-full mt-2 w-56 bg-card rounded-xl shadow-xl border border-border overflow-hidden animate-slide-up z-50">
               {/* User info */}
               <div className="px-4 py-3 border-b border-border">
                 <p className="text-sm font-semibold text-foreground truncate">{member?.name}</p>

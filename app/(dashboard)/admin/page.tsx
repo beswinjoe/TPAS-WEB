@@ -315,10 +315,10 @@ export default function AdminPage() {
           </div>
 
           <div className="bg-card rounded-2xl border border-border overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[600px] scrollbar-thin">
               <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30">
+                <thead className="sticky top-0 bg-muted/95 backdrop-blur-md z-10 shadow-sm">
+                  <tr className="border-b border-border">
                     {['Member', 'Role', 'Division', 'Status', 'Joined', 'Actions'].map(h => (
                       <th key={h} className={cn('text-xs font-semibold text-muted-foreground uppercase tracking-wide px-4 py-3', h === 'Actions' ? 'text-right' : 'text-left')}>{h}</th>
                     ))}
@@ -386,10 +386,10 @@ export default function AdminPage() {
             <div className="px-5 py-4 border-b border-border">
               <h3 className="font-semibold text-foreground">All Donations (Latest 50)</h3>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[600px] scrollbar-thin">
               <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30">
+                <thead className="sticky top-0 bg-muted/95 backdrop-blur-md z-10 shadow-sm">
+                  <tr className="border-b border-border">
                     {['Member', 'Year', 'Amount', 'Status', 'Payment Date', 'Receipt No.'].map(h => (
                       <th key={h} className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide px-4 py-3">{h}</th>
                     ))}

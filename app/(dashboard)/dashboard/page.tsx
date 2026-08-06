@@ -12,6 +12,7 @@ import {
   FileText, UserCheck, BadgeCheck, MapPin, Activity, Award
 } from 'lucide-react';
 import Link from 'next/link';
+import { useCountUp } from '@/lib/hooks';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
@@ -19,13 +20,17 @@ import {
 
 const CHART_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
-function StatCard({ label, value, icon: Icon, color, sub }: { label: string; value: string | number; icon: React.ElementType; color: string; sub?: string }) {
+function StatCard({ label, value, icon: Icon, color, sub, isCurrency }: { label: string; value: number; icon: React.ElementType; color: string; sub?: string; isCurrency?: boolean }) {
+  const animatedValue = useCountUp(value, 1200);
+
   return (
     <div className={`rounded-2xl p-5 text-white shadow-lg card-hover ${color}`}>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-white/70 text-xs font-medium uppercase tracking-wide">{label}</p>
-          <p className="text-3xl font-bold mt-1">{value}</p>
+          <p className="text-3xl font-bold mt-1">
+            {isCurrency ? formatCurrency(animatedValue) : animatedValue}
+          </p>
           {sub && <p className="text-white/60 text-xs mt-1">{sub}</p>}
         </div>
         <div className="p-2.5 bg-white/15 rounded-xl">
@@ -49,9 +54,15 @@ function QuickAction({ label, href, icon: Icon, color }: { label: string; href: 
 
 function SkeletonCard() {
   return (
-    <div className="rounded-2xl p-5 bg-muted animate-pulse">
-      <div className="h-3 w-20 bg-muted-foreground/20 rounded mb-3" />
-      <div className="h-8 w-16 bg-muted-foreground/20 rounded" />
+    <div className="rounded-2xl p-5 bg-card animate-pulse border border-border">
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="h-3 w-20 bg-muted-foreground/20 rounded mb-4" />
+          <div className="h-8 w-16 bg-muted-foreground/20 rounded mb-2" />
+          <div className="h-3 w-24 bg-muted-foreground/20 rounded" />
+        </div>
+        <div className="w-10 h-10 bg-muted-foreground/10 rounded-xl" />
+      </div>
     </div>
   );
 }
@@ -230,8 +241,8 @@ export default function DashboardPage() {
             <StatCard label="Paid Members" value={stats.paid} icon={CheckCircle2} color="bg-gradient-to-br from-emerald-500 to-emerald-600" sub={`${currentYear}`} />
             <StatCard label="Pending" value={stats.pending} icon={Clock} color="bg-gradient-to-br from-amber-500 to-orange-500" sub={`${currentYear}`} />
             <StatCard label="Divisions" value={stats.divisions} icon={Building2} color="bg-gradient-to-br from-purple-600 to-purple-700" sub={`${stats.subDivisions} sub-divisions`} />
-            <StatCard label="Collected" value={formatCurrency(stats.totalCollected)} icon={IndianRupee} color="bg-gradient-to-br from-teal-500 to-teal-600" sub={`${currentYear}`} />
-            <StatCard label="Pending Amount" value={formatCurrency(stats.pendingAmount)} icon={IndianRupee} color="bg-gradient-to-br from-red-500 to-red-600" sub={`${currentYear}`} />
+            <StatCard label="Collected" value={stats.totalCollected} isCurrency icon={IndianRupee} color="bg-gradient-to-br from-teal-500 to-teal-600" sub={`${currentYear}`} />
+            <StatCard label="Pending Amount" value={stats.pendingAmount} isCurrency icon={IndianRupee} color="bg-gradient-to-br from-red-500 to-red-600" sub={`${currentYear}`} />
             <StatCard label="Promotions" value={stats.promotionsThisYear} icon={Award} color="bg-gradient-to-br from-indigo-500 to-indigo-600" sub={`${currentYear}`} />
             <StatCard label="Events" value={stats.events} icon={CalendarDays} color="bg-gradient-to-br from-rose-500 to-pink-600" sub="Upcoming" />
           </>
@@ -248,7 +259,7 @@ export default function DashboardPage() {
                 <TrendingUp className="w-4.5 h-4.5 text-primary" />
                 <h3 className="font-semibold text-foreground text-sm">Donation Collection Trend</h3>
               </div>
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={donationTrend} barSize={18}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="year" tick={{ fontSize: 11 }} />
@@ -269,7 +280,7 @@ export default function DashboardPage() {
                 <MapPin className="w-4.5 h-4.5 text-primary" />
                 <h3 className="font-semibold text-foreground text-sm">Members by Division</h3>
               </div>
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
                   <Pie data={divisionChart} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="members" paddingAngle={3} label={(props: any) => `${props.name ?? ''}: ${props.value ?? ''}`}>
                     {divisionChart.map((_, i) => (
@@ -307,7 +318,11 @@ export default function DashboardPage() {
                   </div>
                 ))
               ) : recentActivity.length === 0 ? (
-                <p className="px-5 py-8 text-center text-muted-foreground text-sm">No recent activity.</p>
+                <div className="px-5 py-10 flex flex-col items-center justify-center text-center">
+                  <Activity className="w-10 h-10 text-muted-foreground/30 mb-3" />
+                  <p className="text-foreground font-medium text-sm">No recent activity</p>
+                  <p className="text-xs text-muted-foreground mt-1">Activities will appear here once members interact.</p>
+                </div>
               ) : (
                 recentActivity.map((log) => {
                   const Icon = ACTION_ICONS[log.action] ?? Activity;
@@ -404,7 +419,11 @@ export default function DashboardPage() {
                   </div>
                 ))
               ) : events.length === 0 ? (
-                <p className="text-center text-muted-foreground text-sm py-4">No upcoming events.</p>
+                <div className="py-8 flex flex-col items-center justify-center text-center">
+                  <CalendarDays className="w-10 h-10 text-muted-foreground/30 mb-3" />
+                  <p className="text-foreground font-medium text-sm">No upcoming events</p>
+                  <p className="text-xs text-muted-foreground mt-1">Check back later for new schedules.</p>
+                </div>
               ) : (
                 events.map((event) => (
                   <div key={event.id} className="flex items-start gap-4 p-4 bg-muted/40 rounded-xl hover:bg-muted/70 transition-colors border border-border/50">
