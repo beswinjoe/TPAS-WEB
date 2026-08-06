@@ -3,7 +3,7 @@
 import { Menu, Bell, Sun, Moon, Search, ChevronDown, LogOut, User, Settings } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/lib/auth-context';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { cn, getInitials } from '@/lib/utils';
@@ -23,6 +23,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/digital-id': 'Digital Member ID',
   '/profile': 'My Profile',
   '/admin': 'Admin Panel',
+  '/notifications': 'Notifications',
 };
 
 interface HeaderProps {
@@ -83,10 +84,10 @@ export function Header({ onMobileMenuOpen }: HeaderProps) {
         )}
 
         {/* Notifications */}
-        <button className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground relative">
+        <Link href="/notifications" className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground relative">
           <Bell className="w-4.5 h-4.5" />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
-        </button>
+        </Link>
 
         {/* User Menu */}
         <div className="relative" ref={menuRef}>

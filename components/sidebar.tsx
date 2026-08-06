@@ -6,7 +6,7 @@ import Image from 'next/image';
 import {
   LayoutDashboard, Users, IndianRupee, History, TrendingUp,
   Building2, Megaphone, CalendarDays, FolderOpen, CreditCard,
-  Shield, ChevronLeft, LogOut, X
+  Shield, ChevronLeft, LogOut, X, Bell
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { NAV_ITEMS } from '@/lib/constants';
@@ -15,7 +15,7 @@ import type { Role } from '@/types';
 
 const iconMap: Record<string, React.ElementType> = {
   LayoutDashboard, Users, IndianRupee, History, TrendingUp,
-  Building2, Megaphone, CalendarDays, FolderOpen, CreditCard, Shield,
+  Building2, Megaphone, CalendarDays, FolderOpen, CreditCard, Shield, Bell,
 };
 
 interface SidebarProps {

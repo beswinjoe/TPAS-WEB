@@ -25,11 +25,11 @@ export const ROLE_BADGE_COLORS: Record<Role, string> = {
 };
 
 export const ALLOWED_ROUTES: Record<Role, string[]> = {
-  Member: ['/dashboard', '/members', '/donations', '/payment-history', '/promotions', '/divisions', '/announcements', '/events', '/documents', '/digital-id', '/profile'],
-  Treasurer: ['/dashboard', '/members', '/donations', '/payment-history', '/promotions', '/divisions', '/announcements', '/events', '/documents', '/digital-id', '/profile'],
-  Secretary: ['/dashboard', '/members', '/donations', '/payment-history', '/promotions', '/divisions', '/announcements', '/events', '/documents', '/digital-id', '/profile'],
-  President: ['/dashboard', '/members', '/donations', '/payment-history', '/promotions', '/divisions', '/announcements', '/events', '/documents', '/digital-id', '/profile'],
-  Admin: ['/dashboard', '/members', '/donations', '/payment-history', '/promotions', '/divisions', '/announcements', '/events', '/documents', '/digital-id', '/profile', '/admin'],
+  Member: ['/dashboard', '/members', '/donations', '/payment-history', '/promotions', '/divisions', '/announcements', '/events', '/documents', '/digital-id', '/profile', '/notifications'],
+  Treasurer: ['/dashboard', '/members', '/donations', '/payment-history', '/promotions', '/divisions', '/announcements', '/events', '/documents', '/digital-id', '/profile', '/notifications'],
+  Secretary: ['/dashboard', '/members', '/donations', '/payment-history', '/promotions', '/divisions', '/announcements', '/events', '/documents', '/digital-id', '/profile', '/notifications'],
+  President: ['/dashboard', '/members', '/donations', '/payment-history', '/promotions', '/divisions', '/announcements', '/events', '/documents', '/digital-id', '/profile', '/notifications'],
+  Admin: ['/dashboard', '/members', '/donations', '/payment-history', '/promotions', '/divisions', '/announcements', '/events', '/documents', '/digital-id', '/profile', '/admin', '/notifications'],
 };
 
 export const CAN_CREATE_ANNOUNCEMENTS: Role[] = ['Admin', 'President', 'Secretary'];
@@ -60,5 +60,6 @@ export const NAV_ITEMS = [
   { label: 'Events', href: '/events', icon: 'CalendarDays', roles: ['Member', 'Treasurer', 'Secretary', 'President', 'Admin'] },
   { label: 'Documents', href: '/documents', icon: 'FolderOpen', roles: ['Member', 'Treasurer', 'Secretary', 'President', 'Admin'] },
   { label: 'Digital ID', href: '/digital-id', icon: 'CreditCard', roles: ['Member', 'Treasurer', 'Secretary', 'President', 'Admin'] },
+  { label: 'Notifications', href: '/notifications', icon: 'Bell', roles: ['Member', 'Treasurer', 'Secretary', 'President', 'Admin'] },
   { label: 'Admin Panel', href: '/admin', icon: 'Shield', roles: ['Admin'] },
 ];

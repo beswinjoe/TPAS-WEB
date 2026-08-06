@@ -3,12 +3,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
-import type { Member, Role } from '@/types';
-import { formatDate, getInitials, cn } from '@/lib/utils';
+import type { Member, Donation, Promotion, Role } from '@/types';
+import { formatDate, formatCurrency, getInitials, cn } from '@/lib/utils';
 import { ROLE_COLORS, CAN_EDIT_MEMBERS, DIVISIONS } from '@/lib/constants';
 import {
   Search, Filter, X, Edit2, Trash2, Phone, Mail,
-  ChevronLeft, ChevronRight, UserCircle, Loader2, Plus
+  ChevronLeft, ChevronRight, UserCircle, Loader2, Plus,
+  Download, Printer, ArrowUpDown, FileSpreadsheet, IndianRupee,
+  TrendingUp, CalendarDays, CreditCard
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
@@ -16,6 +18,14 @@ import Link from 'next/link';
 const ROLES: Role[] = ['President', 'Secretary', 'Treasurer', 'Member', 'Admin'];
 const STATUS_OPTIONS = ['Active', 'Inactive', 'Pending'];
 const PAGE_SIZE = 12;
+
+const SORT_OPTIONS = [
+  { label: 'Name A–Z', value: 'name-asc' },
+  { label: 'Name Z–A', value: 'name-desc' },
+  { label: 'Newest First', value: 'joining-desc' },
+  { label: 'Oldest First', value: 'joining-asc' },
+  { label: 'Employee ID', value: 'eid-asc' },
+];
 
 export default function MembersPage() {
   const { member: me, role } = useAuth();
@@ -29,35 +39,91 @@ export default function MembersPage() {
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('');
   const [filterDivision, setFilterDivision] = useState('');
+  const [filterSubDivision, setFilterSubDivision] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterDonation, setFilterDonation] = useState('');
+  const [sortBy, setSortBy] = useState('name-asc');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+
+  // For enhanced modal
+  const [memberDonations, setMemberDonations] = useState<Donation[]>([]);
+  const [memberPromotions, setMemberPromotions] = useState<Promotion[]>([]);
+  const [modalLoading, setModalLoading] = useState(false);
+
+  // Sub-divisions based on selected division
+  const [subDivisions, setSubDivisions] = useState<string[]>([]);
+
+  // Donation status map for filtering
+  const [donationStatusMap, setDonationStatusMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    // Load sub-divisions when division changes
+    if (filterDivision) {
+      supabase.from('divisions').select('sub_divisions').eq('name', filterDivision).single()
+        .then(({ data }) => {
+          setSubDivisions((data?.sub_divisions as string[]) ?? []);
+        });
+    } else {
+      setSubDivisions([]);
+      setFilterSubDivision('');
+    }
+  }, [filterDivision]);
+
+  useEffect(() => {
+    // Load donation statuses for current year
+    const currentYear = new Date().getFullYear();
+    supabase.from('donations').select('member_id, status').eq('year', currentYear)
+      .then(({ data }) => {
+        const map: Record<string, string> = {};
+        for (const d of (data ?? [])) {
+          map[d.member_id] = d.status;
+        }
+        setDonationStatusMap(map);
+      });
+  }, []);
 
   const loadMembers = useCallback(async () => {
     setLoading(true);
     let query = supabase.from('members').select('*', { count: 'exact' });
 
     if (search) {
-      query = query.or(`name.ilike.%${search}%,employee_id.ilike.%${search}%,email.ilike.%${search}%`);
+      query = query.or(`name.ilike.%${search}%,employee_id.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
     }
     if (filterRole) query = query.eq('role', filterRole);
     if (filterDivision) query = query.eq('division', filterDivision);
+    if (filterSubDivision) query = query.eq('sub_division', filterSubDivision);
     if (filterStatus) query = query.eq('status', filterStatus);
 
-    query = query
-      .order('name')
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+    // Sort
+    const [sortField, sortDir] = sortBy.split('-');
+    const ascending = sortDir === 'asc';
+    if (sortField === 'name') query = query.order('name', { ascending });
+    else if (sortField === 'joining') query = query.order('joining_date', { ascending, nullsFirst: false });
+    else if (sortField === 'eid') query = query.order('employee_id', { ascending });
+
+    query = query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
     const { data, count, error } = await query;
     if (!error) {
-      setMembers(data as Member[]);
-      setTotal(count ?? 0);
+      let filtered = data as Member[];
+      // Client-side donation status filter
+      if (filterDonation) {
+        filtered = filtered.filter(m => {
+          const status = donationStatusMap[m.id];
+          if (filterDonation === 'Paid') return status === 'Paid';
+          if (filterDonation === 'Pending') return status === 'Pending' || !status;
+          return true;
+        });
+      }
+      setMembers(filtered);
+      setTotal(filterDonation ? filtered.length : (count ?? 0));
     }
     setLoading(false);
-  }, [search, filterRole, filterDivision, filterStatus, page]);
+  }, [search, filterRole, filterDivision, filterSubDivision, filterStatus, filterDonation, sortBy, page, donationStatusMap]);
 
-  useEffect(() => { setPage(0); }, [search, filterRole, filterDivision, filterStatus]);
+  useEffect(() => { setPage(0); }, [search, filterRole, filterDivision, filterSubDivision, filterStatus, filterDonation, sortBy]);
   useEffect(() => { loadMembers(); }, [loadMembers]);
 
   async function handleDelete(id: string) {
@@ -73,8 +139,56 @@ export default function MembersPage() {
     setDeleting(null);
   }
 
+  async function openMemberDetail(m: Member) {
+    setSelectedMember(m);
+    setModalLoading(true);
+    const [donRes, promoRes] = await Promise.all([
+      supabase.from('donations').select('*').eq('member_id', m.id).order('year', { ascending: false }).limit(5),
+      supabase.from('promotions').select('*').eq('member_id', m.id).order('promotion_date', { ascending: false }),
+    ]);
+    setMemberDonations((donRes.data as Donation[]) ?? []);
+    setMemberPromotions((promoRes.data as Promotion[]) ?? []);
+    setModalLoading(false);
+  }
+
+  // Export CSV
+  function exportCSV() {
+    const headers = ['Employee ID', 'Name', 'Role', 'Division', 'Sub Division', 'Phone', 'Email', 'Status', 'Joining Date'];
+    const rows = members.map(m => [m.employee_id, m.name, m.role, m.division ?? '', m.sub_division ?? '', m.phone ?? '', m.email ?? '', m.status, m.joining_date ?? '']);
+    const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${v}"`).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `TPAS-Members-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Members exported to CSV!');
+  }
+
+  // Print
+  function handlePrint() {
+    const printContent = `
+      <html><head><title>TPAS Members</title>
+      <style>body{font-family:Arial;padding:20px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#0F2044;color:white}h1{color:#0F2044;font-size:18px}tr:nth-child(even){background:#f9f9f9}</style>
+      </head><body>
+      <h1>TPAS Kanniyakumari - Member Directory</h1>
+      <p>Generated: ${new Date().toLocaleDateString()}</p>
+      <table>
+        <tr><th>ID</th><th>Name</th><th>Role</th><th>Division</th><th>Phone</th><th>Status</th><th>Joined</th></tr>
+        ${members.map(m => `<tr><td>${m.employee_id}</td><td>${m.name}</td><td>${m.role}</td><td>${m.division ?? '—'}</td><td>${m.phone ?? '—'}</td><td>${m.status}</td><td>${m.joining_date ?? '—'}</td></tr>`).join('')}
+      </table>
+      </body></html>`;
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(printContent);
+      win.document.close();
+      win.print();
+    }
+  }
+
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const hasActiveFilters = filterRole || filterDivision || filterStatus;
+  const hasActiveFilters = filterRole || filterDivision || filterSubDivision || filterStatus || filterDonation;
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
@@ -84,12 +198,20 @@ export default function MembersPage() {
           <h2 className="text-xl font-bold text-foreground">Member Directory</h2>
           <p className="text-sm text-muted-foreground">{total} members found</p>
         </div>
-        {canEdit && (
-          <Link href="/admin?tab=members&action=add" className="flex items-center gap-2 px-4 py-2.5 gradient-primary text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-all shadow-md shadow-primary/20">
-            <Plus className="w-4 h-4" />
-            Add Member
-          </Link>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-2 bg-card border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors" title="Export CSV">
+            <FileSpreadsheet className="w-3.5 h-3.5" /> CSV
+          </button>
+          <button onClick={handlePrint} className="flex items-center gap-1.5 px-3 py-2 bg-card border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors" title="Print">
+            <Printer className="w-3.5 h-3.5" /> Print
+          </button>
+          {canEdit && (
+            <Link href="/admin?tab=members&action=add" className="flex items-center gap-2 px-4 py-2.5 gradient-primary text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-all shadow-md shadow-primary/20">
+              <Plus className="w-4 h-4" />
+              Add Member
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Search + Filters */}
@@ -100,7 +222,7 @@ export default function MembersPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, Employee ID, or email..."
+              placeholder="Search by name, ID, email, or phone..."
               className="w-full pl-9 pr-4 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
             />
             {search && (
@@ -109,6 +231,14 @@ export default function MembersPage() {
               </button>
             )}
           </div>
+          {/* Sort */}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+          >
+            {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={cn('flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all',
@@ -124,30 +254,27 @@ export default function MembersPage() {
         </div>
 
         {showFilters && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 animate-fade-in pt-2 border-t border-border">
-            <select
-              value={filterRole}
-              onChange={(e) => setFilterRole(e.target.value)}
-              className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 animate-fade-in pt-2 border-t border-border">
+            <select value={filterRole} onChange={(e) => setFilterRole(e.target.value)} className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30">
               <option value="">All Roles</option>
               {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
-            <select
-              value={filterDivision}
-              onChange={(e) => setFilterDivision(e.target.value)}
-              className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
+            <select value={filterDivision} onChange={(e) => { setFilterDivision(e.target.value); setFilterSubDivision(''); }} className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30">
               <option value="">All Divisions</option>
               {DIVISIONS.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
+            <select value={filterSubDivision} onChange={(e) => setFilterSubDivision(e.target.value)} disabled={!filterDivision} className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50">
+              <option value="">All Sub Divisions</option>
+              {subDivisions.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30">
               <option value="">All Statuses</option>
               {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={filterDonation} onChange={(e) => setFilterDonation(e.target.value)} className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30">
+              <option value="">Donation Status</option>
+              <option value="Paid">Paid ({new Date().getFullYear()})</option>
+              <option value="Pending">Pending ({new Date().getFullYear()})</option>
             </select>
           </div>
         )}
@@ -178,68 +305,80 @@ export default function MembersPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {members.map((m) => (
-            <div
-              key={m.id}
-              className="bg-card rounded-2xl border border-border p-5 card-hover cursor-pointer group relative"
-              onClick={() => setSelectedMember(m)}
-            >
-              {/* Status dot */}
-              <div className={cn('absolute top-4 right-4 w-2.5 h-2.5 rounded-full',
-                m.status === 'Active' ? 'bg-emerald-500' :
-                m.status === 'Inactive' ? 'bg-gray-400' : 'bg-amber-500'
-              )} title={m.status} />
+          {members.map((m) => {
+            const dStatus = donationStatusMap[m.id];
+            return (
+              <div
+                key={m.id}
+                className="bg-card rounded-2xl border border-border p-5 card-hover cursor-pointer group relative"
+                onClick={() => openMemberDetail(m)}
+              >
+                {/* Status dot */}
+                <div className={cn('absolute top-4 right-4 w-2.5 h-2.5 rounded-full',
+                  m.status === 'Active' ? 'bg-emerald-500' :
+                  m.status === 'Inactive' ? 'bg-gray-400' : 'bg-amber-500'
+                )} title={m.status} />
 
-              {/* Avatar + Name */}
-              <div className="flex items-start gap-3 mb-4">
-                <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-sm shrink-0">
-                  {m.photo_url
-                    ? <img src={m.photo_url} alt="" className="w-full h-full rounded-full object-cover" />
-                    : getInitials(m.name)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-foreground text-sm truncate">{m.name}</p>
-                  <p className="text-xs text-muted-foreground">{m.employee_id}</p>
-                </div>
-              </div>
-
-              {/* Role badge */}
-              <span className={cn('inline-block text-xs px-2.5 py-0.5 rounded-full font-medium mb-3', ROLE_COLORS[m.role as Role])}>
-                {m.role}
-              </span>
-
-              {/* Division */}
-              {m.division && (
-                <p className="text-xs text-muted-foreground truncate mb-1">📍 {m.division}</p>
-              )}
-              {m.sub_division && (
-                <p className="text-xs text-muted-foreground/70 truncate">↳ {m.sub_division}</p>
-              )}
-
-              <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">Since {formatDate(m.joining_date)}</p>
-                {canEdit && (
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); toast.info('Edit from Admin Panel'); }}
-                      className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950 text-blue-600 transition-colors"
-                      title="Edit"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(m.id); }}
-                      disabled={deleting === m.id}
-                      className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 text-red-600 transition-colors"
-                      title="Delete"
-                    >
-                      {deleting === m.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                    </button>
+                {/* Avatar + Name */}
+                <div className="flex items-start gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-sm shrink-0">
+                    {m.photo_url
+                      ? <img src={m.photo_url} alt="" className="w-full h-full rounded-full object-cover" />
+                      : getInitials(m.name)}
                   </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-foreground text-sm truncate">{m.name}</p>
+                    <p className="text-xs text-muted-foreground">{m.employee_id}</p>
+                  </div>
+                </div>
+
+                {/* Role badge */}
+                <div className="flex items-center gap-2 mb-3">
+                  <span className={cn('inline-block text-xs px-2.5 py-0.5 rounded-full font-medium', ROLE_COLORS[m.role as Role])}>
+                    {m.role}
+                  </span>
+                  {dStatus && (
+                    <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium',
+                      dStatus === 'Paid' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
+                    )}>
+                      {dStatus}
+                    </span>
+                  )}
+                </div>
+
+                {/* Division */}
+                {m.division && (
+                  <p className="text-xs text-muted-foreground truncate mb-1">📍 {m.division}</p>
                 )}
+                {m.sub_division && (
+                  <p className="text-xs text-muted-foreground/70 truncate">↳ {m.sub_division}</p>
+                )}
+
+                <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">Since {formatDate(m.joining_date)}</p>
+                  {canEdit && (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toast.info('Edit from Admin Panel'); }}
+                        className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950 text-blue-600 transition-colors"
+                        title="Edit"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDelete(m.id); }}
+                        disabled={deleting === m.id}
+                        className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 text-red-600 transition-colors"
+                        title="Delete"
+                      >
+                        {deleting === m.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -281,10 +420,10 @@ export default function MembersPage() {
         </div>
       )}
 
-      {/* Member Detail Modal */}
+      {/* Enhanced Member Detail Modal */}
       {selectedMember && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedMember(null)}>
-          <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md p-6 animate-slide-up" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-lg p-6 animate-slide-up max-h-[90vh] overflow-y-auto scrollbar-thin" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-5">
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center text-white font-bold text-xl">
@@ -304,6 +443,8 @@ export default function MembersPage() {
                 <X className="w-5 h-5 text-muted-foreground" />
               </button>
             </div>
+
+            {/* Basic Info */}
             <div className="space-y-3 border-t border-border pt-4">
               {[
                 { label: 'Division', value: selectedMember.division },
@@ -329,6 +470,78 @@ export default function MembersPage() {
                 </div>
               )}
             </div>
+
+            {/* Promotion History */}
+            <div className="mt-5 pt-4 border-t border-border">
+              <div className="flex items-center gap-2 mb-3">
+                <TrendingUp className="w-4 h-4 text-primary" />
+                <h4 className="font-semibold text-foreground text-sm">Promotion History</h4>
+              </div>
+              {modalLoading ? (
+                <div className="space-y-2">
+                  {Array(2).fill(0).map((_, i) => <div key={i} className="h-8 bg-muted rounded-lg animate-pulse" />)}
+                </div>
+              ) : memberPromotions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No promotions recorded.</p>
+              ) : (
+                <div className="space-y-2">
+                  {memberPromotions.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between p-2.5 bg-muted/40 rounded-lg text-xs border border-border/50">
+                      <div className="flex items-center gap-2">
+                        <span className={cn('px-2 py-0.5 rounded-full font-medium', ROLE_COLORS[p.old_role as Role])}>{p.old_role}</span>
+                        <span className="text-muted-foreground">→</span>
+                        <span className={cn('px-2 py-0.5 rounded-full font-medium', ROLE_COLORS[p.new_role as Role])}>{p.new_role}</span>
+                      </div>
+                      <span className="text-muted-foreground">{formatDate(p.promotion_date)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Donation Records */}
+            <div className="mt-5 pt-4 border-t border-border">
+              <div className="flex items-center gap-2 mb-3">
+                <IndianRupee className="w-4 h-4 text-primary" />
+                <h4 className="font-semibold text-foreground text-sm">Donation Records</h4>
+              </div>
+              {modalLoading ? (
+                <div className="space-y-2">
+                  {Array(3).fill(0).map((_, i) => <div key={i} className="h-8 bg-muted rounded-lg animate-pulse" />)}
+                </div>
+              ) : memberDonations.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No donation records found.</p>
+              ) : (
+                <div className="space-y-2">
+                  {memberDonations.map((d) => (
+                    <div key={d.id} className="flex items-center justify-between p-2.5 bg-muted/40 rounded-lg text-xs border border-border/50">
+                      <div>
+                        <span className="font-semibold text-foreground">{d.year}</span>
+                        <span className="text-muted-foreground ml-2">{formatCurrency(d.amount)}</span>
+                      </div>
+                      <span className={cn('px-2 py-0.5 rounded-full font-medium',
+                        d.status === 'Paid' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
+                      )}>
+                        {d.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* View ID Card Link */}
+            {(role === 'Admin' || role === 'President') && (
+              <div className="mt-5 pt-4 border-t border-border">
+                <Link
+                  href={`/digital-id?member=${selectedMember.id}`}
+                  className="flex items-center justify-center gap-2 w-full py-2.5 bg-primary/10 text-primary rounded-xl text-sm font-medium hover:bg-primary/20 transition-colors"
+                  onClick={() => setSelectedMember(null)}
+                >
+                  <CreditCard className="w-4 h-4" /> View ID Card
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -5,13 +5,19 @@ import { useAuth } from '@/lib/auth-context';
 import { createClient } from '@/lib/supabase/client';
 import { formatDate, formatCurrency, getInitials, cn } from '@/lib/utils';
 import { ROLE_COLORS } from '@/lib/constants';
-import type { Announcement, Event, Donation, Role } from '@/types';
+import type { Announcement, Event, Donation, ActivityLog, Role } from '@/types';
 import {
   Users, IndianRupee, CheckCircle2, Clock, CalendarDays,
   Building2, TrendingUp, ArrowRight, Bell, Zap, CreditCard,
-  FileText, UserCheck, BadgeCheck
+  FileText, UserCheck, BadgeCheck, MapPin, Activity, Award
 } from 'lucide-react';
 import Link from 'next/link';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend
+} from 'recharts';
+
+const CHART_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
 function StatCard({ label, value, icon: Icon, color, sub }: { label: string; value: string | number; icon: React.ElementType; color: string; sub?: string }) {
   return (
@@ -50,13 +56,41 @@ function SkeletonCard() {
   );
 }
 
+const ACTION_ICONS: Record<string, React.ElementType> = {
+  LOGIN: UserCheck,
+  LOGOUT: UserCheck,
+  ADD_MEMBER: Users,
+  RESET_PASSWORD: CreditCard,
+  DELETE_MEMBER: Users,
+  UPDATE_MEMBER: Users,
+  PAY_DONATION: IndianRupee,
+  PROMOTION: TrendingUp,
+};
+
+const ACTION_COLORS: Record<string, string> = {
+  LOGIN: 'text-blue-500 bg-blue-50 dark:bg-blue-950',
+  LOGOUT: 'text-gray-500 bg-gray-50 dark:bg-gray-950',
+  ADD_MEMBER: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950',
+  RESET_PASSWORD: 'text-amber-500 bg-amber-50 dark:bg-amber-950',
+  DELETE_MEMBER: 'text-red-500 bg-red-50 dark:bg-red-950',
+  UPDATE_MEMBER: 'text-purple-500 bg-purple-50 dark:bg-purple-950',
+  PAY_DONATION: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950',
+  PROMOTION: 'text-indigo-500 bg-indigo-50 dark:bg-indigo-950',
+};
+
 export default function DashboardPage() {
   const { member, role } = useAuth();
   const supabase = createClient();
-  const [stats, setStats] = useState({ total: 0, paid: 0, pending: 0, divisions: 5, events: 0 });
+  const [stats, setStats] = useState({
+    total: 0, paid: 0, pending: 0, divisions: 0, subDivisions: 0,
+    events: 0, totalCollected: 0, pendingAmount: 0, promotionsThisYear: 0,
+  });
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [donationStatus, setDonationStatus] = useState<Donation | null>(null);
+  const [recentActivity, setRecentActivity] = useState<ActivityLog[]>([]);
+  const [donationTrend, setDonationTrend] = useState<{ year: number; collected: number; pending: number }[]>([]);
+  const [divisionChart, setDivisionChart] = useState<{ name: string; members: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -64,12 +98,20 @@ export default function DashboardPage() {
   }, [member]);
 
   async function loadData() {
-    const [membersRes, donationsRes, announcementsRes, eventsRes, myDonationRes] = await Promise.all([
-      supabase.from('members').select('id, status', { count: 'exact' }),
-      supabase.from('donations').select('id, status').eq('year', new Date().getFullYear()),
+    const currentYear = new Date().getFullYear();
+    const [
+      membersRes, donationsRes, announcementsRes, eventsRes, myDonationRes,
+      divisionsRes, promotionsRes, activityRes, allDonationsRes,
+    ] = await Promise.all([
+      supabase.from('members').select('id, status, division', { count: 'exact' }),
+      supabase.from('donations').select('id, status, amount').eq('year', currentYear),
       supabase.from('announcements').select('*').order('date', { ascending: false }).limit(4),
       supabase.from('events').select('*').gte('date', new Date().toISOString().split('T')[0]).order('date').limit(3),
-      supabase.from('donations').select('*').eq('member_id', member!.id).eq('year', new Date().getFullYear()).single(),
+      supabase.from('donations').select('*').eq('member_id', member!.id).eq('year', currentYear).single(),
+      supabase.from('divisions').select('name, sub_divisions'),
+      supabase.from('promotions').select('id').gte('promotion_date', `${currentYear}-01-01`),
+      supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(10),
+      supabase.from('donations').select('year, status, amount'),
     ]);
 
     const total = membersRes.count ?? 0;
@@ -77,14 +119,64 @@ export default function DashboardPage() {
     const pending = donationsRes.data?.filter(d => d.status === 'Pending').length ?? 0;
     const eventsCount = eventsRes.data?.length ?? 0;
 
-    setStats({ total, paid, pending, divisions: 5, events: eventsCount });
+    // Division stats
+    const divData = divisionsRes.data ?? [];
+    const totalDivisions = divData.length;
+    const totalSubDivisions = divData.reduce((acc, d) => acc + ((d.sub_divisions as string[])?.length ?? 0), 0);
+
+    // Donation amounts
+    const totalCollected = donationsRes.data
+      ?.filter(d => d.status === 'Paid')
+      .reduce((sum, d) => sum + Number(d.amount), 0) ?? 0;
+    const pendingAmount = donationsRes.data
+      ?.filter(d => d.status === 'Pending')
+      .reduce((sum, d) => sum + Number(d.amount), 0) ?? 0;
+
+    // Promotions this year
+    const promotionsThisYear = promotionsRes.data?.length ?? 0;
+
+    setStats({ total, paid, pending, divisions: totalDivisions, subDivisions: totalSubDivisions, events: eventsCount, totalCollected, pendingAmount, promotionsThisYear });
     setAnnouncements((announcementsRes.data as Announcement[]) ?? []);
     setEvents((eventsRes.data as Event[]) ?? []);
     setDonationStatus(myDonationRes.data as Donation ?? null);
+    setRecentActivity((activityRes.data as ActivityLog[]) ?? []);
+
+    // Donation trend by year
+    const yearMap: Record<number, { collected: number; pending: number }> = {};
+    for (const d of (allDonationsRes.data ?? [])) {
+      if (!yearMap[d.year]) yearMap[d.year] = { collected: 0, pending: 0 };
+      if (d.status === 'Paid') yearMap[d.year].collected += Number(d.amount);
+      else yearMap[d.year].pending += Number(d.amount);
+    }
+    setDonationTrend(
+      Object.entries(yearMap)
+        .sort(([a], [b]) => Number(a) - Number(b))
+        .map(([year, v]) => ({ year: Number(year), ...v }))
+    );
+
+    // Division member distribution
+    const divMemberMap: Record<string, number> = {};
+    for (const m of (membersRes.data ?? [])) {
+      if (m.division) divMemberMap[m.division] = (divMemberMap[m.division] ?? 0) + 1;
+    }
+    setDivisionChart(Object.entries(divMemberMap).map(([name, members]) => ({ name: name.replace(' Division', ''), members })));
+
     setLoading(false);
   }
 
   const currentYear = new Date().getFullYear();
+
+  function timeAgo(dateStr: string) {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 7) return `${days}d ago`;
+    return formatDate(dateStr);
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -128,24 +220,115 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+      {/* Stats Row — expanded */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {loading ? (
-          Array(5).fill(0).map((_, i) => <SkeletonCard key={i} />)
+          Array(8).fill(0).map((_, i) => <SkeletonCard key={i} />)
         ) : (
           <>
             <StatCard label="Total Members" value={stats.total} icon={Users} color="bg-gradient-to-br from-blue-600 to-blue-700" />
             <StatCard label="Paid Members" value={stats.paid} icon={CheckCircle2} color="bg-gradient-to-br from-emerald-500 to-emerald-600" sub={`${currentYear}`} />
             <StatCard label="Pending" value={stats.pending} icon={Clock} color="bg-gradient-to-br from-amber-500 to-orange-500" sub={`${currentYear}`} />
-            <StatCard label="Divisions" value={stats.divisions} icon={Building2} color="bg-gradient-to-br from-purple-600 to-purple-700" />
+            <StatCard label="Divisions" value={stats.divisions} icon={Building2} color="bg-gradient-to-br from-purple-600 to-purple-700" sub={`${stats.subDivisions} sub-divisions`} />
+            <StatCard label="Collected" value={formatCurrency(stats.totalCollected)} icon={IndianRupee} color="bg-gradient-to-br from-teal-500 to-teal-600" sub={`${currentYear}`} />
+            <StatCard label="Pending Amount" value={formatCurrency(stats.pendingAmount)} icon={IndianRupee} color="bg-gradient-to-br from-red-500 to-red-600" sub={`${currentYear}`} />
+            <StatCard label="Promotions" value={stats.promotionsThisYear} icon={Award} color="bg-gradient-to-br from-indigo-500 to-indigo-600" sub={`${currentYear}`} />
             <StatCard label="Events" value={stats.events} icon={CalendarDays} color="bg-gradient-to-br from-rose-500 to-pink-600" sub="Upcoming" />
           </>
         )}
       </div>
 
+      {/* Charts Row */}
+      {!loading && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Donation Trend */}
+          {donationTrend.length > 0 && (
+            <div className="bg-card rounded-2xl border border-border p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <TrendingUp className="w-4.5 h-4.5 text-primary" />
+                <h3 className="font-semibold text-foreground text-sm">Donation Collection Trend</h3>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={donationTrend} barSize={18}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₹${v / 1000}k`} />
+                  <Tooltip formatter={(v) => [formatCurrency(Number(v)), '']} />
+                  <Legend iconType="circle" iconSize={8} />
+                  <Bar dataKey="collected" name="Collected" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="pending" name="Pending" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Division Distribution */}
+          {divisionChart.length > 0 && (
+            <div className="bg-card rounded-2xl border border-border p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <MapPin className="w-4.5 h-4.5 text-primary" />
+                <h3 className="font-semibold text-foreground text-sm">Members by Division</h3>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <PieChart>
+                  <Pie data={divisionChart} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="members" paddingAngle={3} label={(props: any) => `${props.name ?? ''}: ${props.value ?? ''}`}>
+                    {divisionChart.map((_, i) => (
+                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Announcements + Events */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Recent Activity Feed */}
+          <div className="bg-card rounded-2xl border border-border overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4.5 h-4.5 text-primary" />
+                <h3 className="font-semibold text-foreground">Recent Activity</h3>
+              </div>
+            </div>
+            <div className="divide-y divide-border max-h-72 overflow-y-auto scrollbar-thin">
+              {loading ? (
+                Array(4).fill(0).map((_, i) => (
+                  <div key={i} className="px-5 py-3 animate-pulse flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-muted" />
+                    <div className="flex-1">
+                      <div className="h-3 w-48 bg-muted rounded mb-1.5" />
+                      <div className="h-2.5 w-20 bg-muted rounded" />
+                    </div>
+                  </div>
+                ))
+              ) : recentActivity.length === 0 ? (
+                <p className="px-5 py-8 text-center text-muted-foreground text-sm">No recent activity.</p>
+              ) : (
+                recentActivity.map((log) => {
+                  const Icon = ACTION_ICONS[log.action] ?? Activity;
+                  const colorClass = ACTION_COLORS[log.action] ?? 'text-gray-500 bg-gray-50 dark:bg-gray-950';
+                  return (
+                    <div key={log.id} className="px-5 py-3 hover:bg-muted/30 transition-colors flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${colorClass}`}>
+                        <Icon className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-foreground truncate">{log.details}</p>
+                        <p className="text-xs text-muted-foreground/60">{timeAgo(log.created_at)}</p>
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">{log.action.replace('_', ' ')}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
           {/* Recent Announcements */}
           <div className="bg-card rounded-2xl border border-border overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
