@@ -264,7 +264,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Donation Trend */}
           {donationTrend.length > 0 && (
-            <div className="bg-card dark:bg-slate-900/40 rounded-2xl border border-border p-5">
+            <div className="bg-card rounded-2xl border border-border p-5">
               <div className="flex items-center gap-2 mb-4">
                 <TrendingUp className="w-4.5 h-4.5 text-primary" />
                 <h3 className="font-semibold text-foreground text-sm">Donation Collection Trend</h3>
@@ -274,7 +274,11 @@ export default function DashboardPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₹${v / 1000}k`} />
-                  <Tooltip formatter={(v) => [formatCurrency(Number(v)), '']} />
+                  <Tooltip 
+                    formatter={(v) => [formatCurrency(Number(v)), '']} 
+                    cursor={{ fill: 'hsl(var(--muted))', opacity: 0.2 }}
+                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: '8px', fontSize: '12px' }}
+                  />
                   <Legend iconType="circle" iconSize={8} />
                   <Bar dataKey="collected" name="Collected" fill="#22c55e" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="pending" name="Pending" fill="#f59e0b" radius={[4, 4, 0, 0]} />
@@ -285,7 +289,7 @@ export default function DashboardPage() {
 
           {/* Division Distribution */}
           {divisionChart.length > 0 && (
-            <div className="bg-card dark:bg-slate-900/40 rounded-2xl border border-border p-5">
+            <div className="bg-card rounded-2xl border border-border p-5">
               <div className="flex items-center gap-2 mb-4">
                 <MapPin className="w-4.5 h-4.5 text-primary" />
                 <h3 className="font-semibold text-foreground text-sm">Members by Division</h3>
@@ -296,17 +300,33 @@ export default function DashboardPage() {
                     data={divisionChart} 
                     cx="50%" 
                     cy="50%" 
-                    innerRadius={45} 
+                    innerRadius={50} 
                     outerRadius={65} 
                     dataKey="members" 
-                    paddingAngle={3} 
-                    label={{ fontSize: 10, fill: 'currentColor', fontWeight: 500 }}
+                    paddingAngle={3}
+                    labelLine={{ stroke: 'currentColor', strokeWidth: 1, opacity: 0.3 }}
+                    label={(props: any) => {
+                      const { x, y, name, value, textAnchor, fill } = props;
+                      return (
+                        <text
+                          x={x}
+                          y={y}
+                          fill={fill}
+                          fontSize={9}
+                          textAnchor={textAnchor}
+                          dominantBaseline="central"
+                          className="font-medium"
+                        >
+                          {name}: {value}
+                        </text>
+                      );
+                    }}
                   >
                     {divisionChart.map((_, i) => (
                       <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: '8px', fontSize: '12px' }} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
