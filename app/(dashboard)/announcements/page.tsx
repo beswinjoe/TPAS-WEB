@@ -67,6 +67,17 @@ export default function AnnouncementsPage() {
     setSubmitting(false);
   }
 
+  async function handleDelete(id: string) {
+    if (!confirm('Are you sure you want to delete this announcement?')) return;
+    const { error } = await supabase.from('announcements').delete().eq('id', id);
+    if (error) {
+      toast.error('Failed to delete announcement.');
+    } else {
+      toast.success('Announcement deleted.');
+      loadAnnouncements();
+    }
+  }
+
   return (
     <div className="space-y-5 max-w-4xl mx-auto">
       {/* Header + Actions */}
@@ -142,9 +153,20 @@ export default function AnnouncementsPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <h3 className="font-semibold text-foreground leading-snug">{ann.title}</h3>
-                    <span className={cn('shrink-0 text-xs font-medium px-2.5 py-0.5 rounded-full border', CAT_COLORS[ann.category as AnnouncementCategory])}>
-                      {ann.category}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={cn('shrink-0 text-xs font-medium px-2.5 py-0.5 rounded-full border', CAT_COLORS[ann.category as AnnouncementCategory])}>
+                        {ann.category}
+                      </span>
+                      {canCreate && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDelete(ann.id); }}
+                          className="p-1 rounded-md hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 dark:hover:text-red-400 text-muted-foreground transition-colors shrink-0"
+                          title="Delete"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <p className="text-sm text-muted-foreground line-clamp-2">{ann.description}</p>
                   <div className="flex items-center gap-3 mt-3">

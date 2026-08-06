@@ -78,6 +78,17 @@ export default function EventsPage() {
     setSubmitting(false);
   }
 
+  async function handleDelete(id: string) {
+    if (!confirm('Are you sure you want to delete this event?')) return;
+    const { error } = await supabase.from('events').delete().eq('id', id);
+    if (error) {
+      toast.error('Failed to delete event.');
+    } else {
+      toast.success('Event deleted.');
+      loadEvents();
+    }
+  }
+
   const today = new Date().toISOString().split('T')[0];
   const upcoming = events.filter(e => e.date >= today);
   const past = events.filter(e => e.date < today);
@@ -135,12 +146,23 @@ export default function EventsPage() {
                             <span className="text-xs font-medium leading-none">{formatDate(event.date).split(' ')[1]}</span>
                             <span className="text-lg font-bold leading-none">{formatDate(event.date).split(' ')[0]}</span>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-bold text-foreground text-sm leading-snug">{event.title}</h3>
-                            {rsvped && (
-                              <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium mt-0.5">
-                                <CheckCircle2 className="w-3 h-3" /> RSVP'd
-                              </span>
+                          <div className="flex-1 min-w-0 flex items-start justify-between gap-2">
+                            <div>
+                              <h3 className="font-bold text-foreground text-sm leading-snug">{event.title}</h3>
+                              {rsvped && (
+                                <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium mt-0.5">
+                                  <CheckCircle2 className="w-3 h-3" /> RSVP'd
+                                </span>
+                              )}
+                            </div>
+                            {canManage && (
+                              <button
+                                onClick={() => handleDelete(event.id)}
+                                className="p-1.5 rounded-md hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 dark:hover:text-red-400 text-muted-foreground transition-colors shrink-0"
+                                title="Delete Event"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
                             )}
                           </div>
                         </div>
@@ -201,7 +223,18 @@ export default function EventsPage() {
                       <p className="text-sm font-medium text-foreground truncate">{event.title}</p>
                       <p className="text-xs text-muted-foreground">{formatDate(event.date)} · {event.venue}</p>
                     </div>
-                    <span className="text-xs text-muted-foreground shrink-0">{(event.rsvps ?? []).length} attended</span>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-xs text-muted-foreground">{(event.rsvps ?? []).length} attended</span>
+                      {canManage && (
+                        <button
+                          onClick={() => handleDelete(event.id)}
+                          className="p-1 rounded-md hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 text-muted-foreground transition-colors"
+                          title="Delete Event"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

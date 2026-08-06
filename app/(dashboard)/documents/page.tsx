@@ -57,6 +57,17 @@ export default function DocumentsPage() {
     setSubmitting(false);
   }
 
+  async function handleDelete(id: string) {
+    if (!confirm('Are you sure you want to delete this document?')) return;
+    const { error } = await supabase.from('documents').delete().eq('id', id);
+    if (error) {
+      toast.error('Failed to delete document.');
+    } else {
+      toast.success('Document deleted.');
+      loadDocuments();
+    }
+  }
+
   const filtered = activeCategory === 'All' ? documents : documents.filter(d => d.category === activeCategory);
 
   return (
@@ -127,7 +138,16 @@ export default function DocumentsPage() {
           {filtered.map((doc, i) => {
             const Icon = CAT_ICONS[doc.category as DocumentCategory] ?? FileText;
             return (
-              <div key={doc.id} className="bg-card rounded-2xl border border-border p-5 card-hover group animate-fade-in" style={{ animationDelay: `${i * 60}ms` }}>
+              <div key={doc.id} className="bg-card rounded-2xl border border-border p-5 card-hover group animate-fade-in relative" style={{ animationDelay: `${i * 60}ms` }}>
+                {canUpload && (
+                  <button
+                    onClick={() => handleDelete(doc.id)}
+                    className="absolute top-4 right-4 p-1.5 rounded-md hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 dark:hover:text-red-400 text-muted-foreground opacity-0 group-hover:opacity-100 transition-all"
+                    title="Delete Document"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
                 <div className={cn('w-12 h-12 rounded-xl flex items-center justify-center mb-4', CAT_COLORS[doc.category as DocumentCategory])}>
                   <Icon className="w-6 h-6" />
                 </div>
