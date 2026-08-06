@@ -38,6 +38,7 @@ export function Header({ onMobileMenuOpen }: HeaderProps) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notifMenuOpen, setNotifMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [hasUnread, setHasUnread] = useState(false);
   const [mounted, setMounted] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -48,10 +49,27 @@ export function Header({ onMobileMenuOpen }: HeaderProps) {
     async function loadNotifs() {
       const supabase = createClient();
       const { data } = await supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(5);
-      if (data) setNotifications(data);
+      if (data && data.length > 0) {
+        setNotifications(data);
+        const lastSeenStr = localStorage.getItem(`tpas_notif_seen_${member!.id}`);
+        const lastSeen = lastSeenStr ? new Date(lastSeenStr).getTime() : 0;
+        const latestNotif = new Date(data[0].created_at).getTime();
+        if (latestNotif > lastSeen) {
+          setHasUnread(true);
+        }
+      }
     }
     if (member) loadNotifs();
   }, [member]);
+
+  function handleBellClick() {
+    if (!notifMenuOpen) {
+      setHasUnread(false);
+      localStorage.setItem(`tpas_notif_seen_${member!.id}`, new Date().toISOString());
+      window.dispatchEvent(new Event('tpas_notif_read'));
+    }
+    setNotifMenuOpen(!notifMenuOpen);
+  }
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -63,7 +81,16 @@ export function Header({ onMobileMenuOpen }: HeaderProps) {
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    
+    function handleNotifRead() {
+      setHasUnread(false);
+    }
+    window.addEventListener('tpas_notif_read', handleNotifRead);
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('tpas_notif_read', handleNotifRead);
+    };
   }, []);
 
   const pageTitle = Object.entries(PAGE_TITLES).find(([key]) => pathname.startsWith(key))?.[1] ?? 'Portal';
@@ -102,11 +129,13 @@ export function Header({ onMobileMenuOpen }: HeaderProps) {
         {/* Notifications */}
         <div className="relative" ref={notifRef}>
           <button
-            onClick={() => setNotifMenuOpen(!notifMenuOpen)}
+            onClick={handleBellClick}
             className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground relative btn-interactive"
           >
             <Bell className="w-4.5 h-4.5" />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-background" />
+            {hasUnread && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-background" />
+            )}
           </button>
           
           {notifMenuOpen && (

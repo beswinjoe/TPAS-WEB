@@ -56,7 +56,12 @@ export default function NotificationsPage() {
     const saved = localStorage.getItem('tpas_read_notifications');
     if (saved) setReadIds(new Set(JSON.parse(saved)));
     loadNotifications();
-  }, []);
+
+    if (member) {
+      localStorage.setItem(`tpas_notif_seen_${member.id}`, new Date().toISOString());
+      window.dispatchEvent(new Event('tpas_notif_read'));
+    }
+  }, [member]);
 
   async function loadNotifications() {
     const { data } = await supabase
@@ -80,6 +85,11 @@ export default function NotificationsPage() {
     notifications.forEach(n => newSet.add(n.id));
     setReadIds(newSet);
     localStorage.setItem('tpas_read_notifications', JSON.stringify([...newSet]));
+    
+    if (member) {
+      localStorage.setItem(`tpas_notif_seen_${member.id}`, new Date().toISOString());
+      window.dispatchEvent(new Event('tpas_notif_read'));
+    }
   }
 
   function clearAll() {
