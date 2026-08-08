@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import type { Donation } from '@/types';
+import { DONATION_STATUS } from '@/lib/constants';
 import { formatDate, formatCurrency, cn } from '@/lib/utils';
-import { History, CheckCircle2, Clock, Download } from 'lucide-react';
+import { StatusBadge } from '@/components/status-badge';
+import { History, Download } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function PaymentHistoryPage() {
@@ -28,7 +30,7 @@ export default function PaymentHistoryPage() {
     }
   }, [member]);
 
-  const totalPaid = donations.filter(d => d.status === 'Paid').reduce((s, d) => s + d.amount, 0);
+  const totalPaid = donations.filter(d => d.status === DONATION_STATUS.PAID).reduce((s, d) => s + Number(d.amount), 0);
 
   return (
     <div className="space-y-5 max-w-4xl mx-auto">
@@ -40,11 +42,11 @@ export default function PaymentHistoryPage() {
         </div>
         <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl p-5 text-white shadow-lg">
           <p className="text-emerald-200 text-xs font-medium uppercase tracking-wide mb-1">Paid Entries</p>
-          <p className="text-2xl font-bold">{loading ? '—' : donations.filter(d => d.status === 'Paid').length}</p>
+          <p className="text-2xl font-bold">{loading ? '—' : donations.filter(d => d.status === DONATION_STATUS.PAID).length}</p>
         </div>
         <div className="bg-gradient-to-br from-amber-500 to-orange-500 rounded-2xl p-5 text-white shadow-lg">
-          <p className="text-amber-200 text-xs font-medium uppercase tracking-wide mb-1">Pending</p>
-          <p className="text-2xl font-bold">{loading ? '—' : donations.filter(d => d.status === 'Pending').length}</p>
+          <p className="text-amber-200 text-xs font-medium uppercase tracking-wide mb-1">Pending / Other</p>
+          <p className="text-2xl font-bold">{loading ? '—' : donations.filter(d => d.status !== DONATION_STATUS.PAID).length}</p>
         </div>
       </div>
 
@@ -92,21 +94,13 @@ export default function PaymentHistoryPage() {
                       {d.payment_date ? formatDate(d.payment_date) : '—'}
                     </td>
                     <td className="px-5 py-4">
-                      <span className={cn(
-                        'inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full',
-                        d.status === 'Paid'
-                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400'
-                          : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
-                      )}>
-                        {d.status === 'Paid' ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                        {d.status}
-                      </span>
+                      <StatusBadge status={d.status} />
                     </td>
                     <td className="px-5 py-4 text-xs text-muted-foreground font-mono">
                       {d.receipt_number ?? '—'}
                     </td>
                     <td className="px-5 py-4 text-right">
-                      {d.status === 'Paid' && (
+                      {d.status === DONATION_STATUS.PAID && (
                         <button
                           onClick={() => toast.info('Download from Donations page')}
                           className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all"

@@ -5,8 +5,9 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
 import type { Member, Donation, Event, ActivityLog, Role } from '@/types';
+import { DONATION_STATUS } from '@/lib/constants';
 import { formatDate, formatCurrency, cn } from '@/lib/utils';
-import { ROLE_COLORS, DIVISIONS } from '@/lib/constants';
+import { ROLE_COLORS } from '@/lib/constants';
 import {
   Shield, Users, IndianRupee, CalendarDays, BarChart3, Activity,
   Plus, Edit2, Trash2, Save, X, Loader2, Search, Download,
@@ -64,12 +65,21 @@ export default function AdminPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
+  
+  // Dynamic Divisions
+  const [divisions, setDivisions] = useState<{ id: string; name: string }[]>([]);
+  const [subDivisions, setSubDivisions] = useState<{ id: string; name: string; division_id: string }[]>([]);
+
+  useEffect(() => {
+    supabase.from('divisions').select('id, name').then(({ data }) => setDivisions(data || []));
+    supabase.from('sub_divisions').select('id, name, division_id').then(({ data }) => setSubDivisions(data || []));
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     const [membersRes, donationsRes, logsRes, eventsRes] = await Promise.all([
       supabase.from('members').select('*').order('name'),
-      supabase.from('donations').select('*, member:members(name, employee_id)').order('created_at', { ascending: false }).limit(50),
+      supabase.from('donations').select('*, member:members!member_id(name, employee_id)').order('created_at', { ascending: false }).limit(50),
       supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(100),
       supabase.from('events').select('id'),
     ]);
@@ -82,8 +92,8 @@ export default function AdminPage() {
     const activeCount = allMembers.filter(m => m.status === 'Active').length;
     const currentYear = new Date().getFullYear();
     const allDonations = donationsRes.data ?? [];
-    const paidCount = allDonations.filter((d: any) => d.year === currentYear && d.status === 'Paid').length;
-    const pendingCount = allDonations.filter((d: any) => d.year === currentYear && d.status === 'Pending').length;
+    const paidCount = allDonations.filter((d: any) => d.year === currentYear && d.status === DONATION_STATUS.PAID).length;
+    const pendingCount = allDonations.filter((d: any) => d.year === currentYear && d.status === DONATION_STATUS.PENDING).length;
 
     setStats({
       total: allMembers.length,
@@ -119,7 +129,7 @@ export default function AdminPage() {
     if (editMember) {
       const { error } = await supabase.from('members').update({
         employee_id: form.employee_id, name: form.name, phone: form.phone, email: form.email,
-        role: form.role, division: form.division, sub_division: form.sub_division,
+        role: form.role, division: form.division || null, sub_division: form.sub_division || null,
         joining_date: form.joining_date, status: form.status,
       }).eq('id', editMember.id);
       if (error) { toast.error('Failed to update member.'); }
@@ -128,7 +138,7 @@ export default function AdminPage() {
       // Create member
       const { data: newMember, error: memberError } = await supabase.from('members').insert({
         employee_id: form.employee_id, name: form.name, phone: form.phone, email: form.email,
-        role: form.role, division: form.division, sub_division: form.sub_division,
+        role: form.role, division: form.division || null, sub_division: form.sub_division || null,
         joining_date: form.joining_date, status: form.status,
       }).select().single();
 
@@ -409,8 +419,8 @@ export default function AdminPage() {
                       <td className="px-4 py-3 text-sm font-semibold text-foreground">{d.year}</td>
                       <td className="px-4 py-3 text-sm text-foreground">{formatCurrency(d.amount)}</td>
                       <td className="px-4 py-3">
-                        <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full', d.status === 'Paid' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400')}>
-                          {d.status}
+                        <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full', d.status === DONATION_STATUS.PAID ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400')}>
+                          {d.status === DONATION_STATUS.PAID ? 'Paid' : 'Pending'}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{d.payment_date ? formatDate(d.payment_date) : '—'}</td>
@@ -471,7 +481,7 @@ export default function AdminPage() {
             </div>
             <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
-                { label: 'Employee ID *', key: 'employee_id', type: 'text', placeholder: 'e.g. TPAS011', disabled: !!editMember },
+                { label: 'Employee ID *', key: 'employee_id', type: 'text', placeholder: 'e.g. 1234455', disabled: !!editMember },
                 { label: 'Full Name *', key: 'name', type: 'text', placeholder: 'Full name' },
                 { label: 'Phone', key: 'phone', type: 'tel', placeholder: '9876543210' },
                 { label: 'Email', key: 'email', type: 'email', placeholder: 'email@example.com' },
@@ -497,14 +507,17 @@ export default function AdminPage() {
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Division</label>
-                <select value={form.division} onChange={e => setForm(f => ({ ...f, division: e.target.value }))} className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30">
+                <select value={form.division} onChange={e => setForm(f => ({ ...f, division: e.target.value, sub_division: '' }))} className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30">
                   <option value="">Select Division</option>
-                  {DIVISIONS.map(d => <option key={d} value={d}>{d}</option>)}
+                  {divisions.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Sub Division</label>
-                <input value={form.sub_division} onChange={e => setForm(f => ({ ...f, sub_division: e.target.value }))} placeholder="e.g. Ward 1" className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                <select value={form.sub_division} onChange={e => setForm(f => ({ ...f, sub_division: e.target.value }))} disabled={!form.division} className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50">
+                  <option value="">Select Sub Division</option>
+                  {subDivisions.filter(sd => sd.division_id === divisions.find(d => d.name === form.division)?.id).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                </select>
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Status</label>

@@ -34,20 +34,21 @@ export const ALLOWED_ROUTES: Record<Role, string[]> = {
 
 export const CAN_CREATE_ANNOUNCEMENTS: Role[] = ['Admin', 'President', 'Secretary'];
 export const CAN_MANAGE_EVENTS: Role[] = ['Admin', 'President', 'Secretary'];
-export const CAN_MANAGE_DONATIONS: Role[] = ['Admin', 'Treasurer'];
+export const CAN_MANAGE_DONATIONS: Role[] = ['Admin', 'President', 'Treasurer'];
 export const CAN_EDIT_MEMBERS: Role[] = ['Admin', 'Secretary'];
 export const CAN_UPLOAD_DOCUMENTS: Role[] = ['Admin', 'Secretary'];
 
-export const DIVISIONS = [
-  'Kanniyakumari North',
-  'Kanniyakumari South',
-  'Nagercoil Division',
-  'Thuckalay Division',
-  'Colachel Division',
-];
 
 export const DONATION_AMOUNT = 500;
 export const CURRENT_YEAR = new Date().getFullYear();
+
+export const DONATION_STATUS = {
+  PENDING: 'pending',
+  PAYMENT_REPORTED: 'payment_reported',
+  PAID: 'paid',
+  REJECTED: 'rejected',
+  OVERDUE: 'overdue',
+} as const;
 
 export const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', icon: 'LayoutDashboard', roles: ['Member', 'Treasurer', 'Secretary', 'President', 'Admin'] },

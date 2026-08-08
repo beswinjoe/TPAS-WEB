@@ -4,13 +4,13 @@ import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import type { Member, Donation, Promotion, Role } from '@/types';
+import { DONATION_STATUS, ROLE_COLORS, CAN_EDIT_MEMBERS } from '@/lib/constants';
 import { formatDate, formatCurrency, getInitials, cn } from '@/lib/utils';
-import { ROLE_COLORS, CAN_EDIT_MEMBERS, DIVISIONS } from '@/lib/constants';
 import {
   Search, Filter, X, Edit2, Trash2, Phone, Mail,
   ChevronLeft, ChevronRight, UserCircle, Loader2, Plus,
   Download, Printer, ArrowUpDown, FileSpreadsheet, IndianRupee,
-  TrendingUp, CalendarDays, CreditCard
+  TrendingUp, CalendarDays, CreditCard, CheckCircle2, Clock
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
@@ -46,24 +46,29 @@ export default function MembersPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [donationStatusMap, setDonationStatusMap] = useState<Record<string, string>>({});
 
   // For enhanced modal
   const [memberDonations, setMemberDonations] = useState<Donation[]>([]);
   const [memberPromotions, setMemberPromotions] = useState<Promotion[]>([]);
   const [modalLoading, setModalLoading] = useState(false);
 
-  // Sub-divisions based on selected division
-  const [subDivisions, setSubDivisions] = useState<string[]>([]);
-
-  // Donation status map for filtering
-  const [donationStatusMap, setDonationStatusMap] = useState<Record<string, string>>({});
+  // Dynamic Divisions
+  const [divisions, setDivisions] = useState<{ id: string; name: string }[]>([]);
+  const [subDivisions, setSubDivisions] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
-    // Load sub-divisions when division changes
+    supabase.from('divisions').select('id, name').then(({ data }) => {
+      setDivisions(data || []);
+    });
+  }, []);
+
+  // Sub-divisions based on selected division
+  useEffect(() => {
     if (filterDivision) {
-      supabase.from('divisions').select('sub_divisions').eq('name', filterDivision).single()
+      supabase.from('sub_divisions').select('id, name').eq('division_id', filterDivision)
         .then(({ data }) => {
-          setSubDivisions((data?.sub_divisions as string[]) ?? []);
+          setSubDivisions(data || []);
         });
     } else {
       setSubDivisions([]);
@@ -92,8 +97,8 @@ export default function MembersPage() {
       query = query.or(`name.ilike.%${search}%,employee_id.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
     }
     if (filterRole) query = query.eq('role', filterRole);
-    if (filterDivision) query = query.eq('division', filterDivision);
-    if (filterSubDivision) query = query.eq('sub_division', filterSubDivision);
+    if (filterDivision) query = query.eq('division_id', filterDivision);
+    if (filterSubDivision) query = query.eq('sub_division_id', filterSubDivision);
     if (filterStatus) query = query.eq('status', filterStatus);
 
     // Sort
@@ -112,8 +117,8 @@ export default function MembersPage() {
       if (filterDonation) {
         filtered = filtered.filter(m => {
           const status = donationStatusMap[m.id];
-          if (filterDonation === 'Paid') return status === 'Paid';
-          if (filterDonation === 'Pending') return status === 'Pending' || !status;
+          if (filterDonation === DONATION_STATUS.PAID) return status === DONATION_STATUS.PAID;
+          if (filterDonation === DONATION_STATUS.PENDING) return status === DONATION_STATUS.PENDING || !status;
           return true;
         });
       }
@@ -261,11 +266,11 @@ export default function MembersPage() {
             </select>
             <select value={filterDivision} onChange={(e) => { setFilterDivision(e.target.value); setFilterSubDivision(''); }} className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30">
               <option value="">All Divisions</option>
-              {DIVISIONS.map(d => <option key={d} value={d}>{d}</option>)}
+              {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
             <select value={filterSubDivision} onChange={(e) => setFilterSubDivision(e.target.value)} disabled={!filterDivision} className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50">
               <option value="">All Sub Divisions</option>
-              {subDivisions.map(s => <option key={s} value={s}>{s}</option>)}
+              {subDivisions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30">
               <option value="">All Statuses</option>
@@ -273,8 +278,8 @@ export default function MembersPage() {
             </select>
             <select value={filterDonation} onChange={(e) => setFilterDonation(e.target.value)} className="px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30">
               <option value="">Donation Status</option>
-              <option value="Paid">Paid ({new Date().getFullYear()})</option>
-              <option value="Pending">Pending ({new Date().getFullYear()})</option>
+              <option value={DONATION_STATUS.PAID}>Paid ({new Date().getFullYear()})</option>
+              <option value={DONATION_STATUS.PENDING}>Pending ({new Date().getFullYear()})</option>
             </select>
           </div>
         )}
@@ -338,10 +343,11 @@ export default function MembersPage() {
                     {m.role}
                   </span>
                   {dStatus && (
-                    <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium',
-                      dStatus === 'Paid' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
+                    <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1',
+                      dStatus === DONATION_STATUS.PAID ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
                     )}>
-                      {dStatus}
+                      {dStatus === DONATION_STATUS.PAID ? <CheckCircle2 className="w-2.5 h-2.5" /> : <Clock className="w-2.5 h-2.5" />}
+                      {dStatus === DONATION_STATUS.PAID ? 'Paid' : 'Pending'}
                     </span>
                   )}
                 </div>
@@ -519,10 +525,10 @@ export default function MembersPage() {
                         <span className="font-semibold text-foreground">{d.year}</span>
                         <span className="text-muted-foreground ml-2">{formatCurrency(d.amount)}</span>
                       </div>
-                      <span className={cn('px-2 py-0.5 rounded-full font-medium',
-                        d.status === 'Paid' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
+                      <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full',
+                        d.status === DONATION_STATUS.PAID ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
                       )}>
-                        {d.status}
+                        {d.status === DONATION_STATUS.PAID ? 'Paid' : 'Pending'}
                       </span>
                     </div>
                   ))}

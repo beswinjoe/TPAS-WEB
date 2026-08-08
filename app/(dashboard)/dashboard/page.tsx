@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { formatDate, formatCurrency, getInitials, cn } from '@/lib/utils';
 import { ROLE_COLORS } from '@/lib/constants';
 import type { Announcement, Event, Donation, ActivityLog, Role } from '@/types';
+import { DONATION_STATUS } from '@/lib/constants';
 import {
   Users, IndianRupee, CheckCircle2, Clock, CalendarDays,
   Building2, TrendingUp, ArrowRight, Bell, Zap, CreditCard,
@@ -129,8 +130,8 @@ export default function DashboardPage() {
     ]);
 
     const total = membersRes.count ?? 0;
-    const paid = donationsRes.data?.filter(d => d.status === 'Paid').length ?? 0;
-    const pending = donationsRes.data?.filter(d => d.status === 'Pending').length ?? 0;
+    const paid = donationsRes.data?.filter(d => d.status === DONATION_STATUS.PAID).length ?? 0;
+    const pending = donationsRes.data?.filter(d => d.status === DONATION_STATUS.PENDING).length ?? 0;
     const eventsCount = eventsRes.data?.length ?? 0;
 
     // Division stats
@@ -140,10 +141,10 @@ export default function DashboardPage() {
 
     // Donation amounts
     const totalCollected = donationsRes.data
-      ?.filter(d => d.status === 'Paid')
+      ?.filter(d => d.status === DONATION_STATUS.PAID)
       .reduce((sum, d) => sum + Number(d.amount), 0) ?? 0;
     const pendingAmount = donationsRes.data
-      ?.filter(d => d.status === 'Pending')
+      ?.filter(d => d.status === DONATION_STATUS.PENDING || d.status === DONATION_STATUS.OVERDUE)
       .reduce((sum, d) => sum + Number(d.amount), 0) ?? 0;
 
     // Promotions this year
@@ -166,7 +167,7 @@ export default function DashboardPage() {
     const yearMap: Record<number, { collected: number; pending: number }> = {};
     for (const d of (allDonationsRes.data ?? [])) {
       if (!yearMap[d.year]) yearMap[d.year] = { collected: 0, pending: 0 };
-      if (d.status === 'Paid') yearMap[d.year].collected += Number(d.amount);
+      if (d.status === DONATION_STATUS.PAID) yearMap[d.year].collected += Number(d.amount);
       else yearMap[d.year].pending += Number(d.amount);
     }
     setDonationTrend(
@@ -229,11 +230,11 @@ export default function DashboardPage() {
               <p className="text-white font-semibold text-sm">{lastLogin ? formatDate(lastLogin) : 'First Login'}</p>
             </div>
             <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${
-              donationStatus?.status === 'Paid'
+              donationStatus?.status === DONATION_STATUS.PAID
                 ? 'bg-green-500/20 text-green-300'
                 : 'bg-amber-500/20 text-amber-300'
             }`}>
-              {donationStatus?.status === 'Paid'
+              {donationStatus?.status === DONATION_STATUS.PAID
                 ? <><CheckCircle2 className="w-3.5 h-3.5" /> {currentYear} Donation Paid</>
                 : <><Clock className="w-3.5 h-3.5" /> {currentYear} Donation Pending</>}
             </div>
@@ -555,25 +556,25 @@ export default function DashboardPage() {
           {/* Donation Status Card */}
           <div className={cn(
             'rounded-2xl border p-5',
-            donationStatus?.status === 'Paid'
+            donationStatus?.status === DONATION_STATUS.PAID
               ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800'
               : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800'
           )}>
             <div className="flex items-center gap-2 mb-3">
-              <BadgeCheck className={cn('w-5 h-5', donationStatus?.status === 'Paid' ? 'text-emerald-600' : 'text-amber-600')} />
-              <h3 className={cn('font-semibold text-sm', donationStatus?.status === 'Paid' ? 'text-emerald-800 dark:text-emerald-300' : 'text-amber-800 dark:text-amber-300')}>
+              <BadgeCheck className={cn('w-5 h-5', donationStatus?.status === DONATION_STATUS.PAID ? 'text-emerald-600' : 'text-amber-600')} />
+              <h3 className={cn('font-semibold text-sm', donationStatus?.status === DONATION_STATUS.PAID ? 'text-emerald-800 dark:text-emerald-300' : 'text-amber-800 dark:text-amber-300')}>
                 {currentYear} Donation Status
               </h3>
             </div>
-            <p className={cn('text-2xl font-bold', donationStatus?.status === 'Paid' ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400')}>
+            <p className={cn('text-2xl font-bold', donationStatus?.status === DONATION_STATUS.PAID ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400')}>
               {formatCurrency(donationStatus?.amount ?? 500)}
             </p>
-            <p className={cn('text-sm mt-1', donationStatus?.status === 'Paid' ? 'text-emerald-600' : 'text-amber-600')}>
-              {donationStatus?.status === 'Paid'
+            <p className={cn('text-sm mt-1', donationStatus?.status === DONATION_STATUS.PAID ? 'text-emerald-600' : 'text-amber-600')}>
+              {donationStatus?.status === DONATION_STATUS.PAID
                 ? `Paid on ${formatDate(donationStatus.payment_date!)}`
                 : `Due — Please pay before Dec 31, ${currentYear}`}
             </p>
-            {donationStatus?.status !== 'Paid' && (
+            {donationStatus?.status !== DONATION_STATUS.PAID && (
               <Link href="/donations" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400 hover:underline">
                 Pay Now <ArrowRight className="w-3 h-3" />
               </Link>

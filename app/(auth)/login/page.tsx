@@ -166,7 +166,7 @@ export default function LoginPage() {
                       type="text"
                       value={employeeId}
                       onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
-                      placeholder="e.g. TPAS001"
+                      placeholder="e.g. 1234455"
                       className="w-full pl-10 pr-4 py-3 bg-muted/50 border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all text-sm"
                     />
                   </div>
@@ -279,7 +279,7 @@ export default function LoginPage() {
                         type="text"
                         value={forgotId}
                         onChange={(e) => setForgotId(e.target.value.toUpperCase())}
-                        placeholder="e.g. TPAS001"
+                        placeholder="e.g. 1234455"
                         className="w-full pl-10 pr-4 py-3 bg-muted/50 border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all text-sm"
                       />
                     </div>

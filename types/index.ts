@@ -1,6 +1,6 @@
 export type Role = 'President' | 'Secretary' | 'Treasurer' | 'Member' | 'Admin';
 export type MemberStatus = 'Active' | 'Inactive' | 'Pending';
-export type DonationStatus = 'Paid' | 'Pending';
+export type DonationStatus = 'pending' | 'payment_reported' | 'paid' | 'rejected' | 'overdue';
 export type DocumentCategory = 'Membership Forms' | 'Meeting Minutes' | 'Rules' | 'Annual Reports' | 'Circulars';
 export type AnnouncementCategory = 'General' | 'Important' | 'Event' | 'Finance' | 'Circular';
 
@@ -12,8 +12,12 @@ export interface Member {
   phone?: string;
   email?: string;
   role: Role;
-  division?: string;
-  sub_division?: string;
+  division_id?: string;
+  sub_division_id?: string;
+  division?: string; // deprecated, keeping for fallback during migration
+  sub_division?: string; // deprecated
+  division_ref?: Division;
+  sub_division_ref?: SubDivision;
   joining_date?: string;
   status: MemberStatus;
   created_at: string;
@@ -23,11 +27,27 @@ export interface Donation {
   id: string;
   member_id: string;
   year: number;
+  title?: string;
+  description?: string;
   amount: number;
+  due_date?: string;
   status: DonationStatus;
   payment_date?: string;
+  payment_method?: string;
+  transaction_reference?: string;
+  payment_proof_url?: string;
   receipt_number?: string;
+  created_by?: string;
+  reported_by?: string;
+  reported_at?: string;
+  verified_by?: string;
+  verified_at?: string;
+  rejected_by?: string;
+  rejected_at?: string;
+  rejection_reason?: string;
   member?: Member;
+  verifier?: Member;
+  rejecter?: Member;
 }
 
 export interface Promotion {
@@ -72,12 +92,29 @@ export interface Document {
   uploader?: Member;
 }
 
+export interface SubDivision {
+  id: string;
+  division_id: string;
+  name: string;
+  active: boolean;
+  coordinator_id?: string;
+  created_at: string;
+  coordinator?: Member;
+}
+
 export interface Division {
   id: string;
   name: string;
-  sub_divisions: string[];
-  head_member_id?: string;
-  head?: Member;
+  state: string;
+  active: boolean;
+  president_id?: string;
+  secretary_id?: string;
+  treasurer_id?: string;
+  created_at: string;
+  president?: Member;
+  secretary?: Member;
+  treasurer?: Member;
+  sub_divisions?: SubDivision[]; // Replaces string[]
 }
 
 export interface ActivityLog {

@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { Division, Member } from '@/types';
-import { Building2, Users, ChevronDown, ChevronUp, Crown } from 'lucide-react';
+import type { Division, Member, SubDivision } from '@/types';
+import { Building2, ChevronDown, ChevronUp, Crown } from 'lucide-react';
 import { getInitials } from '@/lib/utils';
 
 export default function DivisionsPage() {
@@ -19,30 +19,37 @@ export default function DivisionsPage() {
 
   async function loadData() {
     const [divRes, memRes] = await Promise.all([
-      supabase.from('divisions').select('*'),
+      // Fetch divisions and nested sub_divisions
+      supabase.from('divisions').select('*, sub_divisions(*)').order('name'),
       supabase.from('members').select('*').eq('status', 'Active'),
     ]);
 
     const allMembers = (memRes.data as Member[]) ?? [];
     const divData = (divRes.data as Division[]) ?? [];
 
-    // Group members by division
+    // Group members by division_id
     const byDiv: Record<string, Member[]> = {};
     for (const m of allMembers) {
-      if (!m.division) continue;
-      if (!byDiv[m.division]) byDiv[m.division] = [];
-      byDiv[m.division].push(m);
+      if (!m.division_id) continue;
+      if (!byDiv[m.division_id]) byDiv[m.division_id] = [];
+      byDiv[m.division_id].push(m);
     }
     setMembers(byDiv);
 
     // Attach head + count
     const withMeta = await Promise.all(divData.map(async (d) => {
       let head: Member | undefined;
-      if (d.head_member_id) {
-        const { data } = await supabase.from('members').select('*').eq('id', d.head_member_id).single();
+      // Note: Assuming president_id is the head of the division
+      if (d.president_id) {
+        const { data } = await supabase.from('members').select('*').eq('id', d.president_id).single();
         head = data as Member;
       }
-      return { ...d, head, memberCount: byDiv[d.name]?.length ?? 0 };
+      return { 
+        ...d, 
+        head, 
+        memberCount: byDiv[d.id]?.length ?? 0,
+        sub_divisions: d.sub_divisions || [] 
+      };
     }));
 
     setDivisions(withMeta);
@@ -70,7 +77,7 @@ export default function DivisionsPage() {
             </div>
             <div className="bg-gradient-to-br from-purple-600 to-purple-700 rounded-2xl p-5 text-white shadow-lg">
               <p className="text-purple-200 text-xs uppercase tracking-wide mb-1">Sub Divisions</p>
-              <p className="text-3xl font-bold">{divisions.reduce((s, d) => s + d.sub_divisions.length, 0)}</p>
+              <p className="text-3xl font-bold">{divisions.reduce((s, d) => s + (d.sub_divisions?.length || 0), 0)}</p>
             </div>
             <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl p-5 text-white shadow-lg">
               <p className="text-emerald-200 text-xs uppercase tracking-wide mb-1">Total Members</p>
@@ -97,7 +104,7 @@ export default function DivisionsPage() {
           ))
         ) : (
           divisions.map((div, idx) => {
-            const divMembers = members[div.name] ?? [];
+            const divMembers = members[div.id] ?? [];
             const isOpen = expanded === div.id;
             return (
               <div key={div.id} className="bg-card rounded-2xl border border-border overflow-hidden animate-fade-in" style={{ animationDelay: `${idx * 80}ms` }}>
@@ -112,7 +119,7 @@ export default function DivisionsPage() {
                   <div className="flex-1 min-w-0">
                     <h3 className="font-bold text-foreground">{div.name}</h3>
                     <p className="text-sm text-muted-foreground">
-                      {div.sub_divisions.length} sub-divisions · {div.memberCount} members
+                      {div.sub_divisions?.length || 0} sub-divisions · {div.memberCount} members
                     </p>
                   </div>
                   {div.head && (
@@ -133,14 +140,17 @@ export default function DivisionsPage() {
                     <div className="px-5 py-4 border-b border-border">
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Sub Divisions</p>
                       <div className="flex flex-wrap gap-2">
-                        {div.sub_divisions.map((sub) => {
-                          const count = divMembers.filter(m => m.sub_division === sub).length;
+                        {div.sub_divisions?.map((sub) => {
+                          const count = divMembers.filter(m => m.sub_division_id === sub.id).length;
                           return (
-                            <span key={sub} className="text-xs bg-muted border border-border rounded-lg px-2.5 py-1 text-foreground">
-                              {sub} <span className="text-muted-foreground">({count})</span>
+                            <span key={sub.id} className="text-xs bg-muted border border-border rounded-lg px-2.5 py-1 text-foreground">
+                              {sub.name} <span className="text-muted-foreground">({count})</span>
                             </span>
                           );
                         })}
+                        {(!div.sub_divisions || div.sub_divisions.length === 0) && (
+                           <p className="text-muted-foreground text-sm">No sub-divisions found.</p>
+                        )}
                       </div>
                     </div>
 

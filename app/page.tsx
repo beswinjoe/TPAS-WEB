@@ -26,8 +26,8 @@ export default function HomePage() {
         supabase.from('announcements').select('*').order('date', { ascending: false }).limit(3),
         supabase.from('events').select('*').gte('date', new Date().toISOString().split('T')[0]).order('date').limit(3),
       ]);
-      const paid = donationsRes.data?.filter(d => d.status === 'Paid').length ?? 0;
-      const pending = donationsRes.data?.filter(d => d.status === 'Pending').length ?? 0;
+      const paid = donationsRes.data?.filter(d => d.status === 'paid').length ?? 0;
+      const pending = donationsRes.data?.filter(d => d.status === 'pending').length ?? 0;
       setStats({ members: membersRes.count ?? 0, paid, pending, divisions: 5, events: eventsRes.data?.length ?? 0 });
       setAnnouncements((annsRes.data as Announcement[]) ?? []);
       setEvents((eventsRes.data as Event[]) ?? []);

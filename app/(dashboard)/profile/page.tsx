@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { formatDate, getInitials } from '@/lib/utils';
 import { User, Phone, Mail, Lock, Camera, Save, Loader2, Eye, EyeOff, Briefcase, Building2, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
-import { DIVISIONS } from '@/lib/constants';
+import type { Division, SubDivision } from '@/types';
 
 const ROLES = ['President', 'Secretary', 'Treasurer', 'Member', 'Admin'];
 
@@ -18,7 +18,8 @@ export default function ProfilePage() {
   const [form, setForm] = useState({
     name: member?.name ?? '',
     employee_id: member?.employee_id ?? '',
-    division: member?.division ?? '',
+    division_id: member?.division_id ?? '',
+    sub_division_id: member?.sub_division_id ?? '',
     role: member?.role ?? '',
     phone: member?.phone ?? '',
     email: member?.email ?? '',
@@ -27,6 +28,20 @@ export default function ProfilePage() {
   const [showPw, setShowPw] = useState({ current: false, new: false, confirm: false });
   const [saving, setSaving] = useState(false);
   const [savingPw, setSavingPw] = useState(false);
+  const [divisions, setDivisions] = useState<Division[]>([]);
+  const [subDivisions, setSubDivisions] = useState<SubDivision[]>([]);
+
+  // Load divisions for Admin
+  useState(() => {
+    if (member?.role === 'Admin') {
+      supabase.from('divisions').select('*').then(({ data }) => {
+        if (data) setDivisions(data);
+      });
+      supabase.from('sub_divisions').select('*').then(({ data }) => {
+        if (data) setSubDivisions(data);
+      });
+    }
+  });
 
   async function handleProfileSave(e: React.FormEvent) {
     e.preventDefault();
@@ -35,7 +50,8 @@ export default function ProfilePage() {
     if (member?.role === 'Admin') {
       updateData.name = form.name;
       updateData.employee_id = form.employee_id;
-      updateData.division = form.division;
+      updateData.division_id = form.division_id || null;
+      updateData.sub_division_id = form.sub_division_id || null;
       updateData.role = form.role;
     }
 
@@ -172,12 +188,26 @@ export default function ProfilePage() {
                     <Building2 className="w-3.5 h-3.5 inline mr-1" />Division
                   </label>
                   <select
-                    value={form.division}
-                    onChange={e => setForm(f => ({ ...f, division: e.target.value }))}
+                    value={form.division_id}
+                    onChange={e => setForm(f => ({ ...f, division_id: e.target.value, sub_division_id: '' }))}
                     className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
                   >
                     <option value="">Select Division</option>
-                    {DIVISIONS.map(d => <option key={d} value={d}>{d}</option>)}
+                    {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground block mb-1">
+                    <Building2 className="w-3.5 h-3.5 inline mr-1" />Sub Division
+                  </label>
+                  <select
+                    value={form.sub_division_id}
+                    onChange={e => setForm(f => ({ ...f, sub_division_id: e.target.value }))}
+                    disabled={!form.division_id}
+                    className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all disabled:opacity-50"
+                  >
+                    <option value="">Select Sub Division</option>
+                    {subDivisions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
                 <div>

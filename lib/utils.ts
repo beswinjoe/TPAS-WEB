@@ -35,7 +35,7 @@ export function formatCurrency(amount: number): string {
 }
 
 export function generateReceiptNumber(memberId: string, year: number): string {
-  const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const random = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
   return `TPAS-${year}-${random}`;
 }
 
