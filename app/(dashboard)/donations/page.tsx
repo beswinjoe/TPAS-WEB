@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import type { Donation, Member, Role } from '@/types';
+import { reportPayment, confirmPayment, rejectPayment, createDonationRequest } from '@/app/actions/donations';
 import { formatDate, formatCurrency, cn, generateReceiptNumber } from '@/lib/utils';
 import { CAN_MANAGE_DONATIONS, DONATION_STATUS } from '@/lib/constants';
 import { StatusBadge } from '@/components/status-badge';
@@ -105,21 +106,20 @@ export default function DonationsPage() {
     if (!reportModal) return;
     setReporting(true);
 
-    const { error } = await supabase.from('donations').update({
-      status: DONATION_STATUS.PAYMENT_REPORTED,
-      payment_date: reportForm.date,
-      payment_method: reportForm.method,
-      transaction_reference: reportForm.reference,
-      payment_proof_url: reportForm.proof,
-      description: reportForm.notes ? `${reportModal.description || ''}\nMember Notes: ${reportForm.notes}` : reportModal.description,
-      reported_at: new Date().toISOString(),
-      reported_by: member!.id
-    }).eq('id', reportModal.id);
+    const result = await reportPayment(reportModal.id, {
+      date: reportForm.date,
+      method: reportForm.method,
+      reference: reportForm.reference,
+      proof: reportForm.proof,
+      notes: reportForm.notes,
+      existingDescription: reportModal.description || '',
+      title: reportModal.title || '',
+      year: reportModal.year
+    });
 
-    if (error) {
-      toast.error('Failed to report payment');
+    if (result.error) {
+      toast.error(`Failed to report payment: ${result.error}`);
     } else {
-      await supabase.from('activity_logs').insert({ member_id: member!.id, action: 'REPORT_PAYMENT', details: `Payment reported for ${reportModal.title || reportModal.year}` });
       toast.success('Payment reported successfully');
       setReportModal(null);
       loadData();
@@ -133,19 +133,11 @@ export default function DonationsPage() {
     if (!verifyModal) return;
     setVerifying(true);
     
-    const receipt_number = generateReceiptNumber(verifyModal.member_id, verifyModal.year);
-    
-    const { error } = await supabase.from('donations').update({
-      status: DONATION_STATUS.PAID,
-      receipt_number,
-      verified_by: member!.id,
-      verified_at: new Date().toISOString()
-    }).eq('id', donationId);
+    const result = await confirmPayment(donationId);
 
-    if (error) {
-      toast.error('Failed to confirm payment');
+    if (result.error) {
+      toast.error(`Failed to confirm payment: ${result.error}`);
     } else {
-      await supabase.from('activity_logs').insert({ member_id: member!.id, action: 'VERIFY_PAYMENT', details: `Payment confirmed for ${(verifyModal as any).member?.name} (${(verifyModal as any).member?.employee_id})` });
       toast.success('Payment confirmed and receipt generated.');
       setVerifyModal(null);
       loadData();
@@ -160,17 +152,11 @@ export default function DonationsPage() {
     }
     setVerifying(true);
     
-    const { error } = await supabase.from('donations').update({
-      status: DONATION_STATUS.REJECTED,
-      rejection_reason: rejectReason.trim(),
-      rejected_by: member!.id,
-      rejected_at: new Date().toISOString()
-    }).eq('id', donationId);
+    const result = await rejectPayment(donationId, rejectReason);
 
-    if (error) {
-      toast.error('Failed to reject payment');
+    if (result.error) {
+      toast.error(`Failed to reject payment: ${result.error}`);
     } else {
-      await supabase.from('activity_logs').insert({ member_id: member!.id, action: 'REJECT_PAYMENT', details: `Payment rejected for ${(verifyModal as any).member?.name}. Reason: ${rejectReason}` });
       toast.success('Payment rejected.');
       setVerifyModal(null);
       setShowRejectInput(false);
@@ -206,21 +192,18 @@ export default function DonationsPage() {
     }
     setCreating(true);
 
-    const { error } = await supabase.from('donations').insert({
+    const result = await createDonationRequest({
       member_id: createForm.member_id,
       year: createForm.year,
       amount: createForm.amount,
       title: createForm.title,
       description: createForm.description,
-      due_date: createForm.due_date,
-      status: DONATION_STATUS.PENDING,
-      created_by: member!.id
+      due_date: createForm.due_date
     });
 
-    if (error) {
-      toast.error('Failed to create donation request.');
+    if (result.error) {
+      toast.error(`Failed to create donation request: ${result.error}`);
     } else {
-      await supabase.from('activity_logs').insert({ member_id: member!.id, action: 'CREATE_DONATION', details: `Created donation request: ${createForm.title}` });
       toast.success('Donation request created.');
       setCreateModal(false);
       loadData();

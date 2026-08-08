@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Member, Role } from '@/types';
+import { setSessionCookie, clearSessionCookie } from '@/app/actions/auth';
 
 interface AuthContextType {
   member: Member | null;
@@ -111,6 +112,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         sessionStorage.setItem('tpas_member_id', memberData.id);
       }
+      // Also set secure HTTP-only cookie for Server Actions
+      await setSessionCookie(memberData.id);
 
       setMember(memberData);
       setLoading(false);
@@ -131,6 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     localStorage.removeItem('tpas_member_id');
     sessionStorage.removeItem('tpas_member_id');
+    await clearSessionCookie();
     setMember(null);
   }
 
