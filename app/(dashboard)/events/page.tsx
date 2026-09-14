@@ -1,21 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { db } from '@/lib/firebase/client';
+import { collection, getDocs, doc, deleteDoc, updateDoc, addDoc, query, orderBy } from 'firebase/firestore';
 import { useAuth } from '@/lib/auth-context';
 import type { Event, Role } from '@/types';
 import { formatDate, cn } from '@/lib/utils';
 import { CAN_MANAGE_EVENTS } from '@/lib/constants';
 import { CalendarDays, MapPin, Clock, Users, CheckCircle2, Plus, X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
+import { CardSkeleton } from '@/components/ui/skeletons';
+import { Modal } from '@/components/ui/modal';
 
 export default function EventsPage() {
   const { member, role } = useAuth();
-  const supabase = createClient();
   const canManage = role && CAN_MANAGE_EVENTS.includes(role as Role);
 
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [rsvping, setRsvping] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -24,11 +29,14 @@ export default function EventsPage() {
   useEffect(() => { loadEvents(); }, []);
 
   async function loadEvents() {
-    const { data } = await supabase
-      .from('events')
-      .select('*')
-      .order('date', { ascending: true });
-    setEvents((data as Event[]) ?? []);
+    setLoading(true);
+    setError(null);
+    try {
+      const snap = await getDocs(query(collection(db, 'events'), orderBy('date', 'asc')));
+      setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Event[]);
+    } catch (e) {
+      setError('Unable to load events.');
+    }
     setLoading(false);
   }
 
@@ -45,16 +53,12 @@ export default function EventsPage() {
       ? currentRsvps.filter(id => id !== member.id)
       : [...currentRsvps, member.id];
 
-    const { error } = await supabase
-      .from('events')
-      .update({ rsvps: newRsvps })
-      .eq('id', event.id);
-
-    if (error) {
-      toast.error('Failed to update RSVP.');
-    } else {
+    try {
+      await updateDoc(doc(db, 'events', event.id), { rsvps: newRsvps });
       toast.success(already ? 'RSVP cancelled.' : 'RSVP confirmed! 🎉');
       setEvents(evs => evs.map(e => e.id === event.id ? { ...e, rsvps: newRsvps } : e));
+    } catch (e) {
+      toast.error('Failed to update RSVP.');
     }
     setRsvping(null);
   }
@@ -66,26 +70,30 @@ export default function EventsPage() {
       return;
     }
     setSubmitting(true);
-    const { error } = await supabase.from('events').insert({ ...form, rsvps: [] });
-    if (error) {
-      toast.error('Failed to create event.');
-    } else {
+    try {
+      await addDoc(collection(db, 'events'), {
+        ...form,
+        rsvps: [],
+        created_at: new Date().toISOString(),
+      });
       toast.success('Event created!');
       setShowForm(false);
       setForm({ title: '', venue: '', description: '', date: '', time: '' });
       loadEvents();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to create event.');
     }
     setSubmitting(false);
   }
 
   async function handleDelete(id: string) {
     if (!confirm('Are you sure you want to delete this event?')) return;
-    const { error } = await supabase.from('events').delete().eq('id', id);
-    if (error) {
-      toast.error('Failed to delete event.');
-    } else {
+    try {
+      await deleteDoc(doc(db, 'events', id));
       toast.success('Event deleted.');
       loadEvents();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete event.');
     }
   }
 
@@ -104,7 +112,7 @@ export default function EventsPage() {
         {canManage && (
           <button
             onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 px-4 py-2.5 gradient-primary text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-all shadow-md shadow-primary/20"
+            className="flex items-center gap-2 px-4 py-2.5 btn-primary"
           >
             <Plus className="w-4 h-4" />
             Add Event
@@ -113,16 +121,17 @@ export default function EventsPage() {
       </div>
 
       {/* Upcoming Events */}
-      {loading ? (
+      {error && !loading ? (
+        <ErrorState message={error} onRetry={loadEvents} />
+      ) : loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {Array(4).fill(0).map((_, i) => (
-            <div key={i} className="bg-card rounded-2xl border border-border p-5 animate-pulse">
-              <div className="h-5 w-3/4 bg-muted rounded mb-3" />
-              <div className="h-4 w-1/2 bg-muted rounded mb-2" />
-              <div className="h-4 w-full bg-muted rounded" />
-            </div>
-          ))}
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
         </div>
+      ) : events.length === 0 ? (
+        <EmptyState icon={CalendarDays} title="No events" description="There are no upcoming or past events." className="py-12" />
       ) : (
         <>
           {upcoming.length > 0 && (
@@ -139,10 +148,10 @@ export default function EventsPage() {
                       style={{ animationDelay: `${i * 80}ms` }}
                     >
                       {/* Color bar */}
-                      <div className="h-1.5 gradient-primary" />
+                      <div className="h-1 bg-foreground" />
                       <div className="p-5">
                         <div className="flex items-start gap-3 mb-3">
-                          <div className="shrink-0 w-12 h-12 rounded-xl gradient-primary flex flex-col items-center justify-center text-white text-center shadow-md">
+                          <div className="shrink-0 w-12 h-12 rounded-xl bg-foreground flex flex-col items-center justify-center text-background text-center shadow-md">
                             <span className="text-xs font-medium leading-none">{formatDate(event.date).split(' ')[1]}</span>
                             <span className="text-lg font-bold leading-none">{formatDate(event.date).split(' ')[0]}</span>
                           </div>
@@ -150,7 +159,7 @@ export default function EventsPage() {
                             <div>
                               <h3 className="font-bold text-foreground text-sm leading-snug">{event.title}</h3>
                               {rsvped && (
-                                <span className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium mt-0.5">
+                                <span className="inline-flex items-center gap-1 text-xs text-foreground font-medium mt-0.5">
                                   <CheckCircle2 className="w-3 h-3" /> RSVP'd
                                 </span>
                               )}
@@ -158,7 +167,7 @@ export default function EventsPage() {
                             {canManage && (
                               <button
                                 onClick={() => handleDelete(event.id)}
-                                className="p-1.5 rounded-md hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 dark:hover:text-red-400 text-muted-foreground transition-colors shrink-0"
+                                className="p-1.5 rounded-md hover:bg-muted hover:text-foreground text-muted-foreground transition-colors shrink-0"
                                 title="Delete Event"
                               >
                                 <X className="w-4 h-4" />
@@ -192,8 +201,8 @@ export default function EventsPage() {
                           className={cn(
                             'w-full py-2 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2',
                             rsvped
-                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 hover:bg-red-100 hover:text-red-700 dark:hover:bg-red-950 dark:hover:text-red-400'
-                              : 'gradient-primary text-white hover:opacity-90 shadow-md shadow-primary/20'
+                              ? 'bg-muted text-foreground border border-border hover:bg-muted/80'
+                              : 'bg-foreground text-background hover:opacity-85'
                           )}
                         >
                           {rsvping === event.id ? (
@@ -244,53 +253,83 @@ export default function EventsPage() {
       )}
 
       {/* Create Event Modal */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setShowForm(false)}>
-          <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-lg p-6 animate-slide-up" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-bold text-foreground">New Event</h2>
-              <button onClick={() => setShowForm(false)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
-            </div>
-            <form onSubmit={handleCreate} className="space-y-4">
-              {[
-                { label: 'Event Title *', key: 'title', type: 'text', placeholder: 'e.g. Monthly Chapter Meeting' },
-                { label: 'Venue *', key: 'venue', type: 'text', placeholder: 'e.g. TPAS Community Hall, Nagercoil' },
-                { label: 'Date *', key: 'date', type: 'date', placeholder: '' },
-                { label: 'Time *', key: 'time', type: 'time', placeholder: '' },
-              ].map(({ label, key, type, placeholder }) => (
-                <div key={key}>
-                  <label className="text-sm font-medium text-foreground block mb-1.5">{label}</label>
-                  <input
-                    type={type}
-                    value={form[key as keyof typeof form]}
-                    onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                    placeholder={placeholder}
-                    className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                  />
-                </div>
-              ))}
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-1.5">Description</label>
-                <textarea
-                  value={form.description}
-                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="Event description..."
-                  rows={3}
-                  className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
-                />
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowForm(false)} className="flex-1 py-2.5 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
-                <button type="submit" disabled={submitting} className="flex-1 py-2.5 gradient-primary text-white rounded-xl text-sm font-semibold hover:opacity-90 flex items-center justify-center gap-2 disabled:opacity-70">
-                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create Event'}
-                </button>
-              </div>
-            </form>
+      <Modal
+        isOpen={showForm}
+        onClose={() => setShowForm(false)}
+        title="New Event"
+        maxWidth="max-w-2xl"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="w-full sm:w-auto px-6 h-12 rounded-xl text-sm font-medium text-foreground hover:bg-muted border border-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="event-form"
+              disabled={submitting}
+              className="w-full sm:w-auto px-6 h-12 rounded-xl text-sm font-medium bg-foreground text-background hover:bg-foreground/90 transition-colors disabled:opacity-70 flex items-center justify-center min-w-[160px]"
+            >
+              {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Create Event'}
+            </button>
+          </>
+        }
+      >
+        <form id="event-form" onSubmit={handleCreate} className="space-y-6">
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-2">Event Title *</label>
+            <input
+              type="text"
+              value={form.title}
+              onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+              placeholder="e.g. Monthly Chapter Meeting"
+              className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
+            />
           </div>
-        </div>
-      )}
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-2">Venue *</label>
+            <input
+              type="text"
+              value={form.venue}
+              onChange={e => setForm(f => ({ ...f, venue: e.target.value }))}
+              placeholder="e.g. TPAS Community Hall, Nagercoil"
+              className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div>
+              <label className="text-sm font-medium text-foreground block mb-2">Date *</label>
+              <input
+                type="date"
+                value={form.date}
+                onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground block mb-2">Time *</label>
+              <input
+                type="time"
+                value={form.time}
+                onChange={e => setForm(f => ({ ...f, time: e.target.value }))}
+                className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-2">Description</label>
+            <textarea
+              value={form.description}
+              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              placeholder="Event description..."
+              className="w-full px-4 py-3 min-h-[130px] bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all resize-none"
+            />
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

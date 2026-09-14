@@ -22,10 +22,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
             <Toaster
               position="top-right"
-              richColors
               expand={false}
               toastOptions={{
-                style: { fontFamily: 'var(--font-inter)' },
+                style: {
+                  fontFamily: 'var(--font-inter)',
+                  background: 'hsl(var(--card))',
+                  color: 'hsl(var(--foreground))',
+                  border: '1px solid hsl(var(--border))',
+                  fontSize: '13px',
+                },
               }}
             />
           </AuthProvider>

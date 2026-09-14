@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { createClient } from '@/lib/supabase/client';
+import { db } from '@/lib/firebase/client';
+import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, orderBy, limit, addDoc, getDoc, getCountFromServer, where } from 'firebase/firestore';
 import { formatDate, formatCurrency, getInitials, cn } from '@/lib/utils';
-import { ROLE_COLORS } from '@/lib/constants';
-import type { Announcement, Event, Donation, ActivityLog, Role } from '@/types';
+import type { Announcement, Event, Donation, ActivityLog } from '@/types';
 import { DONATION_STATUS } from '@/lib/constants';
 import {
   Users, IndianRupee, CheckCircle2, Clock, CalendarDays,
@@ -19,53 +19,42 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
+import { CardSkeleton, ListSkeleton } from '@/components/ui/skeletons';
+import { EmptyState } from '@/components/ui/empty-state';
 
-const CHART_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+const CHART_COLORS = ['#171717', '#525252', '#a3a3a3', '#d4d4d4', '#737373', '#404040'];
 
-function StatCard({ label, value, icon: Icon, color, sub, isCurrency }: { label: string; value: number; icon: React.ElementType; color: string; sub?: string; isCurrency?: boolean }) {
+function StatCard({ label, value, icon: Icon, sub, isCurrency, loading }: { label: string; value: number; icon: React.ElementType; sub?: string; isCurrency?: boolean; loading?: boolean }) {
   const animatedValue = useCountUp(value, 1200);
 
+  if (loading) return <CardSkeleton />;
+
   return (
-    <div className={`rounded-2xl p-5 text-white shadow-lg card-hover ${color}`}>
+    <div className="rounded-xl p-5 bg-card border border-border card-hover">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-white/70 text-xs font-medium uppercase tracking-wide">{label}</p>
-          <p className="text-3xl font-bold mt-1">
+          <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">{label}</p>
+          <p className="text-2xl font-bold mt-1.5 text-foreground">
             {isCurrency ? formatCurrency(animatedValue) : animatedValue}
           </p>
-          {sub && <p className="text-white/60 text-xs mt-1">{sub}</p>}
+          {sub && <p className="text-muted-foreground/60 text-xs mt-1">{sub}</p>}
         </div>
-        <div className="p-2.5 bg-white/15 rounded-xl">
-          <Icon className="w-5 h-5 text-white" />
+        <div className="p-2 bg-muted rounded-lg">
+          <Icon className="w-4 h-4 text-muted-foreground" />
         </div>
       </div>
     </div>
   );
 }
 
-function QuickAction({ label, href, icon: Icon, color }: { label: string; href: string; icon: React.ElementType; color: string }) {
+function QuickAction({ label, href, icon: Icon }: { label: string; href: string; icon: React.ElementType }) {
   return (
-    <Link href={href} className={`flex flex-col items-center gap-2 p-4 rounded-xl border border-border bg-card hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 group`}>
-      <div className={`p-3 rounded-xl ${color}`}>
-        <Icon className="w-5 h-5" />
+    <Link href={href} className="flex flex-col items-center gap-2 p-4 rounded-xl border border-border bg-card hover:bg-muted/50 transition-all duration-150 group">
+      <div className="p-2.5 rounded-lg bg-muted">
+        <Icon className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
       </div>
       <span className="text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors text-center leading-tight">{label}</span>
     </Link>
-  );
-}
-
-function SkeletonCard() {
-  return (
-    <div className="rounded-2xl p-5 bg-card animate-pulse border border-border">
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="h-3 w-20 bg-muted-foreground/20 rounded mb-4" />
-          <div className="h-8 w-16 bg-muted-foreground/20 rounded mb-2" />
-          <div className="h-3 w-24 bg-muted-foreground/20 rounded" />
-        </div>
-        <div className="w-10 h-10 bg-muted-foreground/10 rounded-xl" />
-      </div>
-    </div>
   );
 }
 
@@ -80,113 +69,180 @@ const ACTION_ICONS: Record<string, React.ElementType> = {
   PROMOTION: TrendingUp,
 };
 
-const ACTION_COLORS: Record<string, string> = {
-  LOGIN: 'text-blue-500 bg-blue-50 dark:bg-blue-950',
-  LOGOUT: 'text-gray-500 bg-gray-50 dark:bg-gray-950',
-  ADD_MEMBER: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950',
-  RESET_PASSWORD: 'text-amber-500 bg-amber-50 dark:bg-amber-950',
-  DELETE_MEMBER: 'text-red-500 bg-red-50 dark:bg-red-950',
-  UPDATE_MEMBER: 'text-purple-500 bg-purple-50 dark:bg-purple-950',
-  PAY_DONATION: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950',
-  PROMOTION: 'text-indigo-500 bg-indigo-50 dark:bg-indigo-950',
-};
-
 export default function DashboardPage() {
   const { member, role } = useAuth();
-  const supabase = createClient();
-  const [stats, setStats] = useState({
-    total: 0, paid: 0, pending: 0, divisions: 0, subDivisions: 0,
-    events: 0, totalCollected: 0, pendingAmount: 0, promotionsThisYear: 0,
-  });
+  const currentYear = new Date().getFullYear();
+
+  // Progressive loading states
+  const [stats, setStats] = useState({ total: 0, paid: 0, pending: 0, divisions: 0, subDivisions: 0, events: 0, totalCollected: 0, pendingAmount: 0, promotionsThisYear: 0 });
+  const [statsLoading, setStatsLoading] = useState(true);
+
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+
   const [events, setEvents] = useState<Event[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
+
   const [donationStatus, setDonationStatus] = useState<Donation | null>(null);
+  
   const [recentActivity, setRecentActivity] = useState<ActivityLog[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+
   const [donationTrend, setDonationTrend] = useState<{ year: number; collected: number; pending: number }[]>([]);
   const [divisionChart, setDivisionChart] = useState<{ name: string; members: number }[]>([]);
-  const [lastLogin, setLastLogin] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [chartsLoading, setChartsLoading] = useState(true);
 
-  useEffect(() => {
-    if (member) loadData();
+  const [lastLogin, setLastLogin] = useState<string | null>(null);
+
+  const loadStats = useCallback(async () => {
+    if (!member) return;
+    setStatsLoading(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const startOfYear = `${currentYear}-01-01`;
+
+      let total = 0, paid = 0, pending = 0, totalCollected = 0, pendingAmount = 0;
+      let eventsCount = 0, totalDivisions = 0, totalSubDivisions = 0, promotionsThisYear = 0;
+
+      if (role === 'Admin') {
+        const [membersRes, donationsRes, eventsRes, divisionsRes, promotionsRes] = await Promise.allSettled([
+          getCountFromServer(collection(db, 'members')),
+          getDocs(query(collection(db, 'donations'), where('year', '==', currentYear))),
+          getCountFromServer(query(collection(db, 'events'), where('date', '>=', today))),
+          getDocs(collection(db, 'divisions')),
+          getCountFromServer(query(collection(db, 'promotions'), where('promotion_date', '>=', startOfYear))),
+        ]);
+
+        total = membersRes.status === 'fulfilled' ? membersRes.value.data().count : 0;
+        const donations = donationsRes.status === 'fulfilled' ? donationsRes.value.docs.map(d => d.data()) : [];
+        paid = donations.filter(d => d.status === DONATION_STATUS.PAID).length;
+        pending = donations.filter(d => d.status === DONATION_STATUS.PENDING).length;
+        totalCollected = donations.filter(d => d.status === DONATION_STATUS.PAID).reduce((s, d) => s + Number(d.amount), 0);
+        pendingAmount = donations.filter(d => d.status === DONATION_STATUS.PENDING || d.status === DONATION_STATUS.OVERDUE).reduce((s, d) => s + Number(d.amount), 0);
+        
+        eventsCount = eventsRes.status === 'fulfilled' ? eventsRes.value.data().count : 0;
+        const divisionsData = divisionsRes.status === 'fulfilled' ? divisionsRes.value.docs.map(d => d.data()) : [];
+        totalDivisions = divisionsData.length;
+        totalSubDivisions = divisionsData.reduce((acc, d) => acc + ((d.sub_divisions as string[])?.length ?? 0), 0);
+        promotionsThisYear = promotionsRes.status === 'fulfilled' ? promotionsRes.value.data().count : 0;
+      } else {
+        const [donationsRes, eventsRes, divisionsRes, promotionsRes] = await Promise.allSettled([
+          getDocs(query(collection(db, 'donations'), where('member_id', '==', member.id), where('year', '==', currentYear))),
+          getCountFromServer(query(collection(db, 'events'), where('date', '>=', today))),
+          getDocs(collection(db, 'divisions')),
+          getCountFromServer(query(collection(db, 'promotions'), where('member_id', '==', member.id), where('promotion_date', '>=', startOfYear))),
+        ]);
+        
+        total = 1; // Self
+        const donations = donationsRes.status === 'fulfilled' ? donationsRes.value.docs.map(d => d.data()) : [];
+        paid = donations.filter(d => d.status === DONATION_STATUS.PAID).length;
+        pending = donations.filter(d => d.status === DONATION_STATUS.PENDING).length;
+        totalCollected = donations.filter(d => d.status === DONATION_STATUS.PAID).reduce((s, d) => s + Number(d.amount), 0);
+        pendingAmount = donations.filter(d => d.status === DONATION_STATUS.PENDING || d.status === DONATION_STATUS.OVERDUE).reduce((s, d) => s + Number(d.amount), 0);
+        
+        eventsCount = eventsRes.status === 'fulfilled' ? eventsRes.value.data().count : 0;
+        const divisionsData = divisionsRes.status === 'fulfilled' ? divisionsRes.value.docs.map(d => d.data()) : [];
+        totalDivisions = divisionsData.length;
+        totalSubDivisions = divisionsData.reduce((acc, d) => acc + ((d.sub_divisions as string[])?.length ?? 0), 0);
+        promotionsThisYear = promotionsRes.status === 'fulfilled' ? promotionsRes.value.data().count : 0;
+      }
+
+      setStats({ total, paid, pending, divisions: totalDivisions, subDivisions: totalSubDivisions, events: eventsCount, totalCollected, pendingAmount, promotionsThisYear });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [currentYear, member, role]);
+
+  const loadAnnouncements = useCallback(async () => {
+    setAnnouncementsLoading(true);
+    const snap = await getDocs(query(collection(db, 'announcements'), orderBy('date', 'desc'), limit(3)));
+    setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Announcement[]);
+    setAnnouncementsLoading(false);
+  }, []);
+
+  const loadEvents = useCallback(async () => {
+    setEventsLoading(true);
+    const today = new Date().toISOString().split('T')[0];
+    const snap = await getDocs(query(collection(db, 'events'), where('date', '>=', today), orderBy('date', 'asc'), limit(2)));
+    setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Event[]);
+    setEventsLoading(false);
+  }, []);
+
+  const loadActivityAndLogin = useCallback(async () => {
+    setActivityLoading(true);
+    const [activityRes, loginRes] = await Promise.allSettled([
+      getDocs(query(collection(db, 'activity_logs'), orderBy('created_at', 'desc'), limit(10))),
+      getDocs(query(collection(db, 'activity_logs'), where('member_id', '==', member!.id), where('action', '==', 'LOGIN'), orderBy('created_at', 'desc'), limit(2)))
+    ]);
+    
+    if (activityRes.status === 'fulfilled') {
+      setRecentActivity(activityRes.value.docs.map(d => ({ id: d.id, ...d.data() })) as ActivityLog[]);
+    }
+    if (loginRes.status === 'fulfilled') {
+      const logs = loginRes.value.docs.map(d => d.data() as ActivityLog);
+      if (logs.length > 1) setLastLogin(logs[1].created_at);
+      else if (logs.length === 1) setLastLogin(logs[0].created_at);
+    }
+    setActivityLoading(false);
   }, [member]);
 
-  async function loadData() {
-    const currentYear = new Date().getFullYear();
-    const [
-      membersRes, donationsRes, announcementsRes, eventsRes, myDonationRes,
-      divisionsRes, promotionsRes, activityRes, allDonationsRes, lastLoginRes
-    ] = await Promise.all([
-      supabase.from('members').select('id, status, division', { count: 'exact' }),
-      supabase.from('donations').select('id, status, amount').eq('year', currentYear),
-      supabase.from('announcements').select('*').order('date', { ascending: false }).limit(4),
-      supabase.from('events').select('*').gte('date', new Date().toISOString().split('T')[0]).order('date').limit(3),
-      supabase.from('donations').select('*').eq('member_id', member!.id).eq('year', currentYear).single(),
-      supabase.from('divisions').select('name, sub_divisions'),
-      supabase.from('promotions').select('id').gte('promotion_date', `${currentYear}-01-01`),
-      supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(10),
-      supabase.from('donations').select('year, status, amount'),
-      supabase.from('activity_logs').select('created_at').eq('member_id', member!.id).eq('action', 'LOGIN').order('created_at', { ascending: false }).limit(2),
+  const loadCharts = useCallback(async () => {
+    setChartsLoading(true);
+    const [donationsRes, membersRes] = await Promise.allSettled([
+      getDocs(collection(db, 'donations')),
+      getDocs(collection(db, 'members'))
     ]);
 
-    const total = membersRes.count ?? 0;
-    const paid = donationsRes.data?.filter(d => d.status === DONATION_STATUS.PAID).length ?? 0;
-    const pending = donationsRes.data?.filter(d => d.status === DONATION_STATUS.PENDING).length ?? 0;
-    const eventsCount = eventsRes.data?.length ?? 0;
-
-    // Division stats
-    const divData = divisionsRes.data ?? [];
-    const totalDivisions = divData.length;
-    const totalSubDivisions = divData.reduce((acc, d) => acc + ((d.sub_divisions as string[])?.length ?? 0), 0);
-
-    // Donation amounts
-    const totalCollected = donationsRes.data
-      ?.filter(d => d.status === DONATION_STATUS.PAID)
-      .reduce((sum, d) => sum + Number(d.amount), 0) ?? 0;
-    const pendingAmount = donationsRes.data
-      ?.filter(d => d.status === DONATION_STATUS.PENDING || d.status === DONATION_STATUS.OVERDUE)
-      .reduce((sum, d) => sum + Number(d.amount), 0) ?? 0;
-
-    // Promotions this year
-    const promotionsThisYear = promotionsRes.data?.length ?? 0;
-
-    setStats({ total, paid, pending, divisions: totalDivisions, subDivisions: totalSubDivisions, events: eventsCount, totalCollected, pendingAmount, promotionsThisYear });
-    setAnnouncements((announcementsRes.data as Announcement[]) ?? []);
-    setEvents((eventsRes.data as Event[]) ?? []);
-    setDonationStatus(myDonationRes.data as Donation ?? null);
-    setRecentActivity((activityRes.data as ActivityLog[]) ?? []);
-    
-    const loginLogs = lastLoginRes.data ?? [];
-    if (loginLogs.length > 1) {
-      setLastLogin(loginLogs[1].created_at);
-    } else if (loginLogs.length === 1) {
-      setLastLogin(loginLogs[0].created_at);
+    if (donationsRes.status === 'fulfilled') {
+      const yearMap: Record<number, { collected: number; pending: number }> = {};
+      for (const doc of donationsRes.value.docs) {
+        const d = doc.data() as Donation;
+        if (!yearMap[d.year]) yearMap[d.year] = { collected: 0, pending: 0 };
+        if (d.status === DONATION_STATUS.PAID) yearMap[d.year].collected += Number(d.amount);
+        else yearMap[d.year].pending += Number(d.amount);
+      }
+      setDonationTrend(Object.entries(yearMap).sort(([a], [b]) => Number(a) - Number(b)).map(([year, v]) => ({ year: Number(year), ...v })));
     }
 
-    // Donation trend by year
-    const yearMap: Record<number, { collected: number; pending: number }> = {};
-    for (const d of (allDonationsRes.data ?? [])) {
-      if (!yearMap[d.year]) yearMap[d.year] = { collected: 0, pending: 0 };
-      if (d.status === DONATION_STATUS.PAID) yearMap[d.year].collected += Number(d.amount);
-      else yearMap[d.year].pending += Number(d.amount);
+    if (membersRes.status === 'fulfilled') {
+      const divMemberMap: Record<string, number> = {};
+      for (const doc of membersRes.value.docs) {
+        const m = doc.data() as any;
+        if (m.division) divMemberMap[m.division] = (divMemberMap[m.division] ?? 0) + 1;
+      }
+      setDivisionChart(Object.entries(divMemberMap).map(([name, members]) => ({ name: name.replace(' Division', ''), members })));
     }
-    setDonationTrend(
-      Object.entries(yearMap)
-        .sort(([a], [b]) => Number(a) - Number(b))
-        .map(([year, v]) => ({ year: Number(year), ...v }))
-    );
+    setChartsLoading(false);
+  }, []);
 
-    // Division member distribution
-    const divMemberMap: Record<string, number> = {};
-    for (const m of (membersRes.data ?? [])) {
-      if (m.division) divMemberMap[m.division] = (divMemberMap[m.division] ?? 0) + 1;
+  const loadMyDonation = useCallback(async () => {
+    const snap = await getDocs(query(collection(db, 'donations'), where('member_id', '==', member!.id), where('year', '==', currentYear), limit(1)));
+    if (!snap.empty) {
+      setDonationStatus(snap.docs[0].data() as Donation);
+    } else {
+      setDonationStatus(null);
     }
-    setDivisionChart(Object.entries(divMemberMap).map(([name, members]) => ({ name: name.replace(' Division', ''), members })));
+  }, [member, currentYear]);
 
-    setLoading(false);
-  }
+  useEffect(() => {
+    if (!member) return;
 
-  const currentYear = new Date().getFullYear();
+    // Fire core requests immediately
+    loadStats();
+    loadMyDonation();
+    if (role === 'Admin') loadCharts();
+
+    // Delay secondary requests to prioritize network bandwidth for stats and layout
+    const timer = setTimeout(() => {
+      loadAnnouncements();
+      loadEvents();
+      loadActivityAndLogin();
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [member, loadAnnouncements, loadEvents, loadActivityAndLogin, loadCharts, loadMyDonation, loadStats]);
 
   function timeAgo(dateStr: string) {
     const diff = Date.now() - new Date(dateStr).getTime();
@@ -203,181 +259,145 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Welcome Banner */}
-      <div className="relative overflow-hidden rounded-2xl shadow-lg"
-        style={{ background: 'linear-gradient(135deg, #0F2044 0%, #1a3a6c 60%, #0369a1 100%)' }}>
-        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-white/5 pointer-events-none" />
-        <div className="absolute -bottom-6 right-20 w-24 h-24 rounded-full bg-blue-400/10 pointer-events-none" />
-        <div className="relative z-10 p-6 md:p-8 flex flex-col md:flex-row md:items-center gap-4">
-          <div className="w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center text-white text-2xl font-bold shrink-0">
+      <div className="rounded-xl border border-border bg-card p-6">
+        <div className="flex flex-col md:flex-row md:items-center gap-4">
+          <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl bg-muted border border-border flex items-center justify-center text-foreground text-lg font-bold shrink-0">
             {member?.photo_url
-              ? <img src={member.photo_url} alt="" className="w-full h-full rounded-2xl object-cover" />
+              ? <img src={member.photo_url} alt="" className="w-full h-full rounded-xl object-cover" />
               : getInitials(member?.name ?? 'U')}
           </div>
           <div className="flex-1">
-            <p className="text-blue-200 text-sm font-medium">Welcome back 👋</p>
-            <h2 className="text-white text-xl md:text-2xl font-bold mt-0.5">{member?.name}</h2>
+            <p className="text-muted-foreground text-xs font-medium">Welcome back</p>
+            <h2 className="text-foreground text-lg md:text-xl font-semibold mt-0.5">{member?.name}</h2>
             <div className="flex flex-wrap gap-2 mt-2">
-              <span className="text-xs bg-white/15 text-white px-2.5 py-1 rounded-full">{member?.employee_id}</span>
-              <span className="text-xs bg-blue-500/30 text-blue-100 px-2.5 py-1 rounded-full">{role}</span>
+              <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-md border border-border">{member?.employee_id}</span>
+              <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-md border border-border">{role}</span>
               {member?.division && (
-                <span className="text-xs bg-white/10 text-blue-200 px-2.5 py-1 rounded-full">{member.division}</span>
+                <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-md border border-border">{member.division}</span>
               )}
             </div>
           </div>
-          <div className="flex flex-col gap-2 text-right">
-            <div className="text-right">
-              <p className="text-blue-200 text-xs">Last Login</p>
-              <p className="text-white font-semibold text-sm">{lastLogin ? formatDate(lastLogin) : 'First Login'}</p>
+          <div className="flex flex-col gap-2 md:items-end">
+            <div className="md:text-right">
+              <p className="text-muted-foreground text-xs">Last login</p>
+              <p className="text-foreground font-medium text-sm">{lastLogin ? formatDate(lastLogin) : 'First login'}</p>
             </div>
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${
+            <div className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border',
               donationStatus?.status === DONATION_STATUS.PAID
-                ? 'bg-green-500/20 text-green-300'
-                : 'bg-amber-500/20 text-amber-300'
-            }`}>
+                ? 'bg-muted text-foreground border-border'
+                : 'bg-muted text-muted-foreground border-border'
+            )}>
               {donationStatus?.status === DONATION_STATUS.PAID
-                ? <><CheckCircle2 className="w-3.5 h-3.5" /> {currentYear} Donation Paid</>
-                : <><Clock className="w-3.5 h-3.5" /> {currentYear} Donation Pending</>}
+                ? <><CheckCircle2 className="w-3.5 h-3.5" /> {currentYear} Paid</>
+                : <><Clock className="w-3.5 h-3.5" /> {currentYear} Pending</>}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Stats Row — expanded */}
+      {/* Stats Row */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {loading ? (
-          Array(8).fill(0).map((_, i) => <SkeletonCard key={i} />)
-        ) : (
-          <>
-            <StatCard label="Total Members" value={stats.total} icon={Users} color="bg-gradient-to-br from-blue-600 to-blue-700" />
-            <StatCard label="Paid Members" value={stats.paid} icon={CheckCircle2} color="bg-gradient-to-br from-emerald-500 to-emerald-600" sub={`${currentYear}`} />
-            <StatCard label="Pending" value={stats.pending} icon={Clock} color="bg-gradient-to-br from-amber-500 to-orange-500" sub={`${currentYear}`} />
-            <StatCard label="Divisions" value={stats.divisions} icon={Building2} color="bg-gradient-to-br from-purple-600 to-purple-700" sub={`${stats.subDivisions} sub-divisions`} />
-            <StatCard label="Collected" value={stats.totalCollected} isCurrency icon={IndianRupee} color="bg-gradient-to-br from-teal-500 to-teal-600" sub={`${currentYear}`} />
-            <StatCard label="Pending Amount" value={stats.pendingAmount} isCurrency icon={IndianRupee} color="bg-gradient-to-br from-red-500 to-red-600" sub={`${currentYear}`} />
-            <StatCard label="Promotions" value={stats.promotionsThisYear} icon={Award} color="bg-gradient-to-br from-indigo-500 to-indigo-600" sub={`${currentYear}`} />
-            <StatCard label="Events" value={stats.events} icon={CalendarDays} color="bg-gradient-to-br from-rose-500 to-pink-600" sub="Upcoming" />
-          </>
-        )}
+        <StatCard loading={statsLoading} label="Total Members" value={stats.total} icon={Users} />
+        <StatCard loading={statsLoading} label="Paid Members" value={stats.paid} icon={CheckCircle2} sub={`${currentYear}`} />
+        <StatCard loading={statsLoading} label="Pending" value={stats.pending} icon={Clock} sub={`${currentYear}`} />
+        <StatCard loading={statsLoading} label="Divisions" value={stats.divisions} icon={Building2} sub={`${stats.subDivisions} sub-divisions`} />
+        <StatCard loading={statsLoading} label="Collected" value={stats.totalCollected} isCurrency icon={IndianRupee} sub={`${currentYear}`} />
+        <StatCard loading={statsLoading} label="Pending Amt" value={stats.pendingAmount} isCurrency icon={IndianRupee} sub={`${currentYear}`} />
+        <StatCard loading={statsLoading} label="Promotions" value={stats.promotionsThisYear} icon={Award} sub={`${currentYear}`} />
+        <StatCard loading={statsLoading} label="Events" value={stats.events} icon={CalendarDays} sub="Upcoming" />
       </div>
 
       {/* Charts Row */}
-      {!loading && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Donation Trend */}
-          {donationTrend.length > 0 && (
-            <div className="bg-card rounded-2xl border border-border p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <TrendingUp className="w-4.5 h-4.5 text-primary" />
-                <h3 className="font-semibold text-foreground text-sm">Donation Collection Trend</h3>
-              </div>
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={donationTrend} barSize={18}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₹${v / 1000}k`} />
-                  <Tooltip 
-                    formatter={(v) => [formatCurrency(Number(v)), '']} 
-                    cursor={{ fill: 'hsl(var(--muted))', opacity: 0.2 }}
-                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: '8px', fontSize: '12px' }}
-                  />
-                  <Legend iconType="circle" iconSize={8} />
-                  <Bar dataKey="collected" name="Collected" fill="#22c55e" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="pending" name="Pending" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-
-          {/* Division Distribution */}
-          {divisionChart.length > 0 && (
-            <div className="bg-card rounded-2xl border border-border p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <MapPin className="w-4.5 h-4.5 text-primary" />
-                <h3 className="font-semibold text-foreground text-sm">Members by Division</h3>
-              </div>
-              <ResponsiveContainer width="100%" height={260}>
-                <PieChart>
-                  <Pie 
-                    data={divisionChart} 
-                    cx="50%" 
-                    cy="50%" 
-                    innerRadius={50} 
-                    outerRadius={65} 
-                    dataKey="members" 
-                    paddingAngle={3}
-                    labelLine={{ stroke: 'currentColor', strokeWidth: 1, opacity: 0.3 }}
-                    label={(props: any) => {
-                      const { x, y, name, value, textAnchor, fill } = props;
-                      return (
-                        <text
-                          x={x}
-                          y={y}
-                          fill={fill}
-                          fontSize={9}
-                          textAnchor={textAnchor}
-                          dominantBaseline="central"
-                          className="font-medium"
-                        >
-                          {name}: {value}
-                        </text>
-                      );
-                    }}
-                  >
-                    {divisionChart.map((_, i) => (
-                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: '8px', fontSize: '12px' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-card rounded-xl border border-border p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingUp className="w-4 h-4 text-muted-foreground" />
+            <h3 className="font-semibold text-foreground text-sm">Donation Trend</h3>
+          </div>
+          {chartsLoading ? (
+            <div className="h-[240px] flex items-center justify-center text-muted-foreground text-xs">Loading chart...</div>
+          ) : donationTrend.length > 0 ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={donationTrend} barSize={16}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="year" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
+                <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={(v) => `₹${v / 1000}k`} />
+                <Tooltip 
+                  formatter={(v) => [formatCurrency(Number(v)), '']} 
+                  cursor={{ fill: 'hsl(var(--muted))', opacity: 0.3 }}
+                  contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: '8px', fontSize: '12px' }}
+                />
+                <Legend iconType="circle" iconSize={8} />
+                <Bar dataKey="collected" name="Collected" fill="#171717" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="pending" name="Pending" fill="#a3a3a3" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <EmptyState icon={TrendingUp} title="No donation data" description="Trends will appear here." className="py-8" />
           )}
         </div>
-      )}
+
+        <div className="bg-card rounded-xl border border-border p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <MapPin className="w-4 h-4 text-muted-foreground" />
+            <h3 className="font-semibold text-foreground text-sm">Members by Division</h3>
+          </div>
+          {chartsLoading ? (
+            <div className="h-[240px] flex items-center justify-center text-muted-foreground text-xs">Loading chart...</div>
+          ) : divisionChart.length > 0 ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <PieChart>
+                <Pie 
+                  data={divisionChart} 
+                  cx="50%" cy="50%" innerRadius={50} outerRadius={65} dataKey="members" paddingAngle={3}
+                  labelLine={{ stroke: 'currentColor', strokeWidth: 1, opacity: 0.2 }}
+                  label={(props: any) => {
+                    const { x, y, name, value, textAnchor } = props;
+                    return (
+                      <text x={x} y={y} fill="hsl(var(--muted-foreground))" fontSize={9} textAnchor={textAnchor} dominantBaseline="central" className="font-medium">
+                        {name}: {value}
+                      </text>
+                    );
+                  }}
+                >
+                  {divisionChart.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))', borderRadius: '8px', fontSize: '12px' }} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+             <EmptyState icon={MapPin} title="No division data" description="Division breakdown will appear here." className="py-8" />
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Announcements + Events */}
+        {/* Left Column */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Recent Activity Feed */}
-          <div className="bg-card rounded-2xl border border-border overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4.5 h-4.5 text-primary" />
-                <h3 className="font-semibold text-foreground">Recent Activity</h3>
-              </div>
+          {/* Recent Activity */}
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+              <Activity className="w-4 h-4 text-muted-foreground" />
+              <h3 className="font-semibold text-foreground text-sm">Recent Activity</h3>
             </div>
-            <div className="p-5 max-h-[340px] overflow-y-auto scrollbar-thin">
-              {loading ? (
-                <div className="space-y-4">
-                  {Array(4).fill(0).map((_, i) => (
-                    <div key={i} className="animate-pulse flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-muted" />
-                      <div className="flex-1">
-                        <div className="h-3 w-48 bg-muted rounded mb-1.5" />
-                        <div className="h-2.5 w-20 bg-muted rounded" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            <div className="p-5 max-h-[320px] overflow-y-auto scrollbar-thin">
+              {activityLoading ? (
+                <ListSkeleton items={4} />
               ) : recentActivity.length === 0 ? (
-                <div className="py-10 flex flex-col items-center justify-center text-center">
-                  <Activity className="w-10 h-10 text-muted-foreground/30 mb-3" />
-                  <p className="text-foreground font-medium text-sm">No recent activity</p>
-                  <p className="text-xs text-muted-foreground mt-1">Activities will appear here once members interact.</p>
-                </div>
+                <EmptyState icon={Activity} title="No recent activity" description="Activities will appear here once members interact." className="py-6" />
               ) : (
-                <div className="relative border-l-2 border-border ml-3 space-y-5">
+                <div className="space-y-3">
                   {recentActivity.map((log) => {
                     const Icon = ACTION_ICONS[log.action] ?? Activity;
-                    const colorClass = ACTION_COLORS[log.action] ?? 'text-gray-500 bg-gray-50 dark:bg-gray-950';
                     return (
-                      <div key={log.id} className="relative pl-6">
-                        <div className={`absolute -left-[17px] top-0.5 w-8 h-8 rounded-full flex items-center justify-center shrink-0 border-4 border-card ${colorClass}`}>
-                          <Icon className="w-3.5 h-3.5" />
+                      <div key={log.id} className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors">
+                        <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0">
+                          <Icon className="w-3.5 h-3.5 text-muted-foreground" />
                         </div>
-                        <div className="bg-muted/30 rounded-xl p-3 border border-border/50 hover:bg-muted/50 transition-colors">
+                        <div className="flex-1 min-w-0">
                           <p className="text-sm text-foreground leading-snug">{log.details}</p>
-                          <p className="text-xs text-muted-foreground mt-1 font-medium">{timeAgo(log.created_at)}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{timeAgo(log.created_at)}</p>
                         </div>
                       </div>
                     );
@@ -387,53 +407,35 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Recent Announcements */}
-          <div className="bg-card rounded-2xl border border-border overflow-hidden">
+          {/* Announcements */}
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <div className="flex items-center gap-2">
-                <Bell className="w-4.5 h-4.5 text-primary" />
-                <h3 className="font-semibold text-foreground">Recent Announcements</h3>
+                <Bell className="w-4 h-4 text-muted-foreground" />
+                <h3 className="font-semibold text-foreground text-sm">Announcements</h3>
               </div>
-              <Link href="/announcements" className="text-xs text-primary hover:text-primary/80 font-medium flex items-center gap-1">
+              <Link href="/announcements" className="text-xs text-muted-foreground hover:text-foreground font-medium flex items-center gap-1 transition-colors">
                 View all <ArrowRight className="w-3 h-3" />
               </Link>
             </div>
             <div className="divide-y divide-border">
-              {loading ? (
-                Array(3).fill(0).map((_, i) => (
-                  <div key={i} className="px-5 py-4 animate-pulse">
-                    <div className="h-3.5 w-48 bg-muted rounded mb-2" />
-                    <div className="h-3 w-full bg-muted rounded mb-1" />
-                    <div className="h-3 w-3/4 bg-muted rounded" />
-                  </div>
-                ))
+              {announcementsLoading ? (
+                <ListSkeleton items={3} />
               ) : announcements.length === 0 ? (
-                <p className="px-5 py-8 text-center text-muted-foreground text-sm">No announcements yet.</p>
+                 <EmptyState icon={Megaphone} title="No announcements yet" description="Important updates will appear here." className="py-8" />
               ) : (
                 announcements.map((ann) => (
                   <div key={ann.id} className="px-5 py-4 hover:bg-muted/30 transition-colors">
                     <div className="flex items-start gap-3">
-                      <div className={cn(
-                        'mt-0.5 w-2 h-2 rounded-full shrink-0',
-                        ann.category === 'Important' ? 'bg-red-500' :
-                        ann.category === 'Finance' ? 'bg-amber-500' :
-                        ann.category === 'Event' ? 'bg-purple-500' :
-                        'bg-blue-500'
-                      )} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-semibold text-foreground leading-snug truncate">{ann.title}</p>
-                          <span className={cn(
-                            'shrink-0 text-xs px-2 py-0.5 rounded-full',
-                            ann.category === 'Important' ? 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-400' :
-                            ann.category === 'Finance' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-400' :
-                            'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-400'
-                          )}>
+                          <p className="text-sm font-medium text-foreground leading-snug truncate">{ann.title}</p>
+                          <span className="shrink-0 text-[10px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-medium border border-border">
                             {ann.category}
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{ann.description}</p>
-                        <p className="text-xs text-muted-foreground/60 mt-1.5">{formatDate(ann.date)}</p>
+                        <p className="text-xs text-muted-foreground/50 mt-1.5">{formatDate(ann.date)}</p>
                       </div>
                     </div>
                   </div>
@@ -442,44 +444,41 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Upcoming Events */}
-          <div className="bg-card rounded-2xl border border-border overflow-hidden">
+          {/* Events */}
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <div className="flex items-center gap-2">
-                <CalendarDays className="w-4.5 h-4.5 text-primary" />
-                <h3 className="font-semibold text-foreground">Upcoming Meetings & Events</h3>
+                <CalendarDays className="w-4 h-4 text-muted-foreground" />
+                <h3 className="font-semibold text-foreground text-sm">Upcoming Events</h3>
               </div>
-              <Link href="/events" className="text-xs text-primary hover:text-primary/80 font-medium flex items-center gap-1">
+              <Link href="/events" className="text-xs text-muted-foreground hover:text-foreground font-medium flex items-center gap-1 transition-colors">
                 View all <ArrowRight className="w-3 h-3" />
               </Link>
             </div>
             <div className="p-5 grid gap-3">
-              {loading ? (
-                Array(2).fill(0).map((_, i) => (
-                  <div key={i} className="p-4 bg-muted rounded-xl animate-pulse">
-                    <div className="h-4 w-48 bg-muted-foreground/20 rounded mb-2" />
-                    <div className="h-3 w-32 bg-muted-foreground/20 rounded" />
-                  </div>
-                ))
+              {eventsLoading ? (
+                <ListSkeleton items={2} />
               ) : events.length === 0 ? (
-                <div className="py-8 flex flex-col items-center justify-center text-center">
-                  <CalendarDays className="w-10 h-10 text-muted-foreground/30 mb-3" />
-                  <p className="text-foreground font-medium text-sm">No upcoming events</p>
-                  <p className="text-xs text-muted-foreground mt-1">Check back later for new schedules.</p>
-                </div>
+                <EmptyState icon={CalendarDays} title="No upcoming events" description="Check back later for new schedules." className="py-6" />
               ) : (
                 events.map((event) => (
                   <div key={event.id} className="flex items-start gap-4 p-4 bg-muted/40 rounded-xl hover:bg-muted/70 transition-colors border border-border/50">
-                    <div className="shrink-0 w-12 h-12 rounded-xl gradient-primary flex flex-col items-center justify-center text-white text-center">
-                      <span className="text-xs font-medium leading-tight">{formatDate(event.date).split(' ')[1]}</span>
-                      <span className="text-lg font-bold leading-tight">{formatDate(event.date).split(' ')[0]}</span>
+                    <div className="shrink-0 w-11 h-11 rounded-lg bg-foreground flex flex-col items-center justify-center text-background text-center">
+                      <span className="text-[10px] font-medium leading-tight">{formatDate(event.date).split(' ')[1]}</span>
+                      <span className="text-base font-bold leading-tight">{formatDate(event.date).split(' ')[0]}</span>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm text-foreground truncate">{event.title}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">📍 {event.venue}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">🕐 {event.time}</p>
+                      <p className="font-medium text-sm text-foreground truncate">{event.title}</p>
+                      <div className="flex flex-wrap gap-3 mt-1">
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <MapPin className="w-3 h-3" /> {event.venue}
+                        </span>
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <Clock className="w-3 h-3" /> {event.time}
+                        </span>
+                      </div>
                     </div>
-                    <Link href="/events" className="shrink-0 text-xs text-primary hover:text-primary/80 font-medium">
+                    <Link href="/events" className="shrink-0 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors">
                       RSVP →
                     </Link>
                   </div>
@@ -489,13 +488,13 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Right Column - Profile + Quick Actions */}
+        {/* Right Column */}
         <div className="space-y-5">
           {/* My Details */}
-          <div className="bg-card rounded-2xl border border-border overflow-hidden">
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
             <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-              <UserCheck className="w-4.5 h-4.5 text-primary" />
-              <h3 className="font-semibold text-foreground">My Details</h3>
+              <UserCheck className="w-4 h-4 text-muted-foreground" />
+              <h3 className="font-semibold text-foreground text-sm">My Details</h3>
             </div>
             <div className="p-5 space-y-3">
               {[
@@ -509,8 +508,8 @@ export default function DashboardPage() {
                 <div key={label} className="flex items-start justify-between gap-2">
                   <span className="text-xs text-muted-foreground shrink-0">{label}</span>
                   <span className={cn('text-xs font-medium text-right truncate max-w-36',
-                    label === 'Role' && role ? ROLE_COLORS[role as Role] + ' px-2 py-0.5 rounded-full' : 'text-foreground',
-                    label === 'Status' && value === 'Active' ? 'text-green-600' : ''
+                    label === 'Role' ? 'bg-muted px-2 py-0.5 rounded-md border border-border text-muted-foreground' : 'text-foreground',
+                    label === 'Status' && value === 'Active' ? 'text-foreground' : ''
                   )}>
                     {value}
                   </span>
@@ -526,28 +525,28 @@ export default function DashboardPage() {
           </div>
 
           {/* Quick Actions */}
-          <div className="bg-card rounded-2xl border border-border overflow-hidden">
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
             <div className="px-5 py-4 border-b border-border flex items-center gap-2">
-              <Zap className="w-4.5 h-4.5 text-primary" />
-              <h3 className="font-semibold text-foreground">Quick Actions</h3>
+              <Zap className="w-4 h-4 text-muted-foreground" />
+              <h3 className="font-semibold text-foreground text-sm">Quick Actions</h3>
             </div>
             <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
               {(role === 'Admin' || role === 'Secretary') ? (
                 <>
-                  <QuickAction label="Add Member" href="/admin" icon={UserPlus} color="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
-                  {role === 'Admin' && <QuickAction label="Add Donation" href="/donations" icon={IndianRupee} color="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" />}
-                  <QuickAction label="New Announce" href="/announcements" icon={Megaphone} color="bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400" />
-                  <QuickAction label="New Event" href="/events" icon={CalendarDays} color="bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400" />
-                  {role === 'Admin' && <QuickAction label="Admin Panel" href="/admin" icon={Shield} color="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400" />}
+                  <QuickAction label="Add Member" href="/admin" icon={UserPlus} />
+                  {role === 'Admin' && <QuickAction label="Add Donation" href="/donations" icon={IndianRupee} />}
+                  <QuickAction label="Announcement" href="/announcements" icon={Megaphone} />
+                  <QuickAction label="New Event" href="/events" icon={CalendarDays} />
+                  {role === 'Admin' && <QuickAction label="Admin Panel" href="/admin" icon={Shield} />}
                 </>
               ) : (
                 <>
-                  <QuickAction label="Pay Donation" href="/donations" icon={IndianRupee} color="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
-                  <QuickAction label="My ID Card" href="/digital-id" icon={CreditCard} color="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400" />
-                  <QuickAction label="Documents" href="/documents" icon={FileText} color="bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400" />
-                  <QuickAction label="Members" href="/members" icon={Users} color="bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400" />
-                  <QuickAction label="Events" href="/events" icon={CalendarDays} color="bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400" />
-                  <QuickAction label="Promotions" href="/promotions" icon={TrendingUp} color="bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400" />
+                  <QuickAction label="Pay Donation" href="/donations" icon={IndianRupee} />
+                  <QuickAction label="My ID Card" href="/digital-id" icon={CreditCard} />
+                  <QuickAction label="Documents" href="/documents" icon={FileText} />
+                  <QuickAction label="Members" href="/members" icon={Users} />
+                  <QuickAction label="Events" href="/events" icon={CalendarDays} />
+                  <QuickAction label="Promotions" href="/promotions" icon={TrendingUp} />
                 </>
               )}
             </div>
@@ -555,27 +554,27 @@ export default function DashboardPage() {
 
           {/* Donation Status Card */}
           <div className={cn(
-            'rounded-2xl border p-5',
+            'rounded-xl border p-5',
             donationStatus?.status === DONATION_STATUS.PAID
-              ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800'
-              : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800'
+              ? 'bg-muted border-border'
+              : 'bg-muted border-border'
           )}>
             <div className="flex items-center gap-2 mb-3">
-              <BadgeCheck className={cn('w-5 h-5', donationStatus?.status === DONATION_STATUS.PAID ? 'text-emerald-600' : 'text-amber-600')} />
-              <h3 className={cn('font-semibold text-sm', donationStatus?.status === DONATION_STATUS.PAID ? 'text-emerald-800 dark:text-emerald-300' : 'text-amber-800 dark:text-amber-300')}>
-                {currentYear} Donation Status
+              <BadgeCheck className={cn('w-4 h-4', donationStatus?.status === DONATION_STATUS.PAID ? 'text-foreground' : 'text-muted-foreground')} />
+              <h3 className={cn('font-semibold text-sm', donationStatus?.status === DONATION_STATUS.PAID ? 'text-foreground' : 'text-muted-foreground')}>
+                {currentYear} Donation
               </h3>
             </div>
-            <p className={cn('text-2xl font-bold', donationStatus?.status === DONATION_STATUS.PAID ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400')}>
+            <p className={cn('text-2xl font-bold', donationStatus?.status === DONATION_STATUS.PAID ? 'text-foreground' : 'text-muted-foreground')}>
               {formatCurrency(donationStatus?.amount ?? 500)}
             </p>
-            <p className={cn('text-sm mt-1', donationStatus?.status === DONATION_STATUS.PAID ? 'text-emerald-600' : 'text-amber-600')}>
+            <p className={cn('text-sm mt-1', donationStatus?.status === DONATION_STATUS.PAID ? 'text-foreground' : 'text-muted-foreground')}>
               {donationStatus?.status === DONATION_STATUS.PAID
                 ? `Paid on ${formatDate(donationStatus.payment_date!)}`
                 : `Due — Please pay before Dec 31, ${currentYear}`}
             </p>
             {donationStatus?.status !== DONATION_STATUS.PAID && (
-              <Link href="/donations" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400 hover:underline">
+              <Link href="/donations" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-foreground hover:underline">
                 Pay Now <ArrowRight className="w-3 h-3" />
               </Link>
             )}

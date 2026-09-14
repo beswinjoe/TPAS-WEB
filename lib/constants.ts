@@ -9,19 +9,19 @@ export const ROLE_HIERARCHY: Record<Role, number> = {
 };
 
 export const ROLE_COLORS: Record<Role, string> = {
-  Member: 'bg-slate-100 text-slate-700',
-  Treasurer: 'bg-amber-100 text-amber-700',
-  Secretary: 'bg-blue-100 text-blue-700',
-  President: 'bg-purple-100 text-purple-700',
-  Admin: 'bg-red-100 text-red-700',
+  Member: 'bg-muted text-muted-foreground',
+  Treasurer: 'bg-muted text-muted-foreground',
+  Secretary: 'bg-muted text-muted-foreground',
+  President: 'bg-muted text-muted-foreground',
+  Admin: 'bg-foreground text-background',
 };
 
 export const ROLE_BADGE_COLORS: Record<Role, string> = {
   Member: 'default',
-  Treasurer: 'warning',
-  Secretary: 'info',
-  President: 'purple',
-  Admin: 'destructive',
+  Treasurer: 'default',
+  Secretary: 'default',
+  President: 'default',
+  Admin: 'default',
 };
 
 export const ALLOWED_ROUTES: Record<Role, string[]> = {

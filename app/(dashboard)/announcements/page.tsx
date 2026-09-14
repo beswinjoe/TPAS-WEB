@@ -1,30 +1,35 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { db } from '@/lib/firebase/client';
+import { collection, getDocs, doc, deleteDoc, addDoc, query, orderBy, where } from 'firebase/firestore';
 import { useAuth } from '@/lib/auth-context';
 import type { Announcement, AnnouncementCategory, Role } from '@/types';
 import { formatDate, cn } from '@/lib/utils';
 import { CAN_CREATE_ANNOUNCEMENTS } from '@/lib/constants';
 import { Megaphone, Plus, X, Search, Paperclip, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
+import { ListSkeleton } from '@/components/ui/skeletons';
+import { Modal } from '@/components/ui/modal';
 
 const CATEGORIES: AnnouncementCategory[] = ['General', 'Important', 'Event', 'Finance', 'Circular'];
 const CAT_COLORS: Record<AnnouncementCategory, string> = {
-  General: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800',
-  Important: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-400 dark:border-red-800',
-  Event: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-400 dark:border-purple-800',
-  Finance: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800',
-  Circular: 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950 dark:text-teal-400 dark:border-teal-800',
+  General: 'bg-muted text-muted-foreground border-border',
+  Important: 'bg-foreground text-background border-foreground',
+  Event: 'bg-muted text-muted-foreground border-border',
+  Finance: 'bg-muted text-muted-foreground border-border',
+  Circular: 'bg-muted text-muted-foreground border-border',
 };
 
 export default function AnnouncementsPage() {
   const { member, role } = useAuth();
-  const supabase = createClient();
   const canCreate = role && CAN_CREATE_ANNOUNCEMENTS.includes(role as Role);
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filterCat, setFilterCat] = useState<string>('');
   const [showForm, setShowForm] = useState(false);
@@ -36,11 +41,23 @@ export default function AnnouncementsPage() {
 
   async function loadAnnouncements() {
     setLoading(true);
-    let query = supabase.from('announcements').select('*').order('date', { ascending: false });
-    if (search) query = query.ilike('title', `%${search}%`);
-    if (filterCat) query = query.eq('category', filterCat);
-    const { data } = await query;
-    setAnnouncements((data as Announcement[]) ?? []);
+    setError(null);
+    try {
+      let q = query(collection(db, 'announcements'), orderBy('date', 'desc'));
+      if (filterCat) q = query(q, where('category', '==', filterCat));
+      
+      const snap = await getDocs(q);
+      let allData = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Announcement[];
+      
+      if (search) {
+        const lower = search.toLowerCase();
+        allData = allData.filter(a => a.title.toLowerCase().includes(lower));
+      }
+      
+      setAnnouncements(allData);
+    } catch (e) {
+      setError('Unable to load announcements.');
+    }
     setLoading(false);
   }
 
@@ -51,30 +68,31 @@ export default function AnnouncementsPage() {
       return;
     }
     setSubmitting(true);
-    const { error } = await supabase.from('announcements').insert({
-      ...form,
-      posted_by: member!.id,
-      date: new Date().toISOString().split('T')[0],
-    });
-    if (error) {
-      toast.error('Failed to post announcement.');
-    } else {
+    try {
+      await addDoc(collection(db, 'announcements'), {
+        ...form,
+        posted_by: member!.id,
+        date: new Date().toISOString().split('T')[0],
+        created_at: new Date().toISOString(),
+      });
       toast.success('Announcement posted!');
       setShowForm(false);
       setForm({ title: '', description: '', category: 'General' });
       loadAnnouncements();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to post announcement.');
     }
     setSubmitting(false);
   }
 
   async function handleDelete(id: string) {
     if (!confirm('Are you sure you want to delete this announcement?')) return;
-    const { error } = await supabase.from('announcements').delete().eq('id', id);
-    if (error) {
-      toast.error('Failed to delete announcement.');
-    } else {
+    try {
+      await deleteDoc(doc(db, 'announcements', id));
       toast.success('Announcement deleted.');
       loadAnnouncements();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete announcement.');
     }
   }
 
@@ -89,7 +107,7 @@ export default function AnnouncementsPage() {
         {canCreate && (
           <button
             onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 px-4 py-2.5 gradient-primary text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-all shadow-md shadow-primary/20"
+            className="flex items-center gap-2 px-4 py-2.5 btn-primary"
           >
             <Plus className="w-4 h-4" />
             New Announcement
@@ -120,20 +138,12 @@ export default function AnnouncementsPage() {
 
       {/* Announcements List */}
       <div className="space-y-3">
-        {loading ? (
-          Array(4).fill(0).map((_, i) => (
-            <div key={i} className="bg-card rounded-2xl border border-border p-5 animate-pulse">
-              <div className="h-5 w-2/3 bg-muted rounded mb-3" />
-              <div className="h-4 w-full bg-muted rounded mb-2" />
-              <div className="h-4 w-3/4 bg-muted rounded" />
-            </div>
-          ))
+        {error && !loading ? (
+          <ErrorState message={error} onRetry={loadAnnouncements} />
+        ) : loading ? (
+          <ListSkeleton items={4} />
         ) : announcements.length === 0 ? (
-          <div className="text-center py-16 bg-card rounded-2xl border border-border">
-            <Megaphone className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-            <p className="text-foreground font-medium">No announcements</p>
-            <p className="text-muted-foreground text-sm mt-1">Check back later for updates</p>
-          </div>
+          <EmptyState icon={Megaphone} title={search || filterCat ? 'No matching announcements' : 'No announcements'} description={search || filterCat ? 'Try adjusting your filters.' : 'Check back later for updates.'} className="py-16 bg-card rounded-2xl border border-border" />
         ) : (
           announcements.map((ann, i) => (
             <div
@@ -145,10 +155,10 @@ export default function AnnouncementsPage() {
               <div className="flex items-start gap-3">
                 <div className={cn(
                   'shrink-0 mt-0.5 w-2.5 h-2.5 rounded-full',
-                  ann.category === 'Important' ? 'bg-red-500' :
-                  ann.category === 'Finance' ? 'bg-amber-500' :
-                  ann.category === 'Event' ? 'bg-purple-500' :
-                  ann.category === 'Circular' ? 'bg-teal-500' : 'bg-blue-500'
+                  ann.category === 'Important' ? 'bg-foreground' :
+                  ann.category === 'Finance' ? 'bg-muted-foreground' :
+                  ann.category === 'Event' ? 'bg-muted-foreground/60' :
+                  ann.category === 'Circular' ? 'bg-muted-foreground/40' : 'bg-foreground'
                 )} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-3 mb-2">
@@ -160,7 +170,7 @@ export default function AnnouncementsPage() {
                       {canCreate && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDelete(ann.id); }}
-                          className="p-1 rounded-md hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 dark:hover:text-red-400 text-muted-foreground transition-colors shrink-0"
+                          className="p-1 rounded-md hover:bg-muted hover:text-foreground text-muted-foreground transition-colors shrink-0"
                           title="Delete"
                         >
                           <X className="w-3.5 h-3.5" />
@@ -187,83 +197,83 @@ export default function AnnouncementsPage() {
 
       {/* Detail Modal */}
       {selected && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelected(null)}>
-          <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-lg p-6 animate-slide-up max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex items-start justify-between gap-3 mb-4">
+        <Modal
+          isOpen={!!selected}
+          onClose={() => setSelected(null)}
+          title={
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-semibold text-foreground">{selected.title}</h2>
               <span className={cn('text-xs font-medium px-2.5 py-0.5 rounded-full border', CAT_COLORS[selected.category as AnnouncementCategory])}>
                 {selected.category}
               </span>
-              <button onClick={() => setSelected(null)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
             </div>
-            <h2 className="text-lg font-bold text-foreground mb-2">{selected.title}</h2>
-            <p className="text-xs text-muted-foreground mb-4">{formatDate(selected.date)}</p>
+          }
+          maxWidth="max-w-2xl"
+        >
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground">{formatDate(selected.date)}</p>
             <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{selected.description}</p>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Create Form Modal */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setShowForm(false)}>
-          <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-lg p-6 animate-slide-up" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-bold text-foreground">New Announcement</h2>
-              <button onClick={() => setShowForm(false)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
-            </div>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-1.5">Title *</label>
-                <input
-                  value={form.title}
-                  onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder="Announcement title"
-                  className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-1.5">Category</label>
-                <select
-                  value={form.category}
-                  onChange={e => setForm(f => ({ ...f, category: e.target.value as AnnouncementCategory }))}
-                  className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                >
-                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-1.5">Description *</label>
-                <textarea
-                  value={form.description}
-                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="Write the announcement details..."
-                  rows={5}
-                  className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none"
-                />
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="flex-1 py-2.5 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="flex-1 py-2.5 gradient-primary text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-all flex items-center justify-center gap-2 disabled:opacity-70"
-                >
-                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Post Announcement'}
-                </button>
-              </div>
-            </form>
+      <Modal
+        isOpen={showForm}
+        onClose={() => setShowForm(false)}
+        title="New Announcement"
+        maxWidth="max-w-2xl"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="w-full sm:w-auto px-6 h-12 rounded-xl text-sm font-medium text-foreground hover:bg-muted border border-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              onClick={handleSubmit}
+              className="w-full sm:w-auto px-6 h-12 rounded-xl text-sm font-medium bg-foreground text-background hover:bg-foreground/90 transition-colors disabled:opacity-70 flex items-center justify-center min-w-[160px]"
+            >
+              {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Post Announcement'}
+            </button>
+          </>
+        }
+      >
+        <form id="announcement-form" onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-2">Title *</label>
+            <input
+              value={form.title}
+              onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+              placeholder="Announcement title"
+              className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
+            />
           </div>
-        </div>
-      )}
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-2">Category</label>
+            <select
+              value={form.category}
+              onChange={e => setForm(f => ({ ...f, category: e.target.value as AnnouncementCategory }))}
+              className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
+            >
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-2">Description *</label>
+            <textarea
+              value={form.description}
+              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              placeholder="Write the announcement details..."
+              className="w-full px-4 py-3 min-h-[130px] bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all resize-none"
+            />
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

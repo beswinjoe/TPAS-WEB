@@ -1,18 +1,10 @@
 'use server';
 
 import { cookies } from 'next/headers';
-import { createClient } from '@supabase/supabase-js';
 import { DONATION_STATUS, CAN_MANAGE_DONATIONS } from '@/lib/constants';
 import type { Role } from '@/types';
 import { generateReceiptNumber } from '@/lib/utils';
-
-// We initialize a Supabase client that can be used on the server
-// Note: It's fine to use anon key here since RLS is disabled in the schema,
-// the security enforcement happens right here in these Server Actions.
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { adminDb } from '@/lib/firebase/server';
 
 /**
  * Helper to get the currently authenticated member from the cookie
@@ -23,13 +15,14 @@ async function getAuthenticatedMember() {
   
   if (!memberId) return null;
 
-  const { data: member } = await supabase
-    .from('members')
-    .select('*')
-    .eq('id', memberId)
-    .single();
+  try {
+    const docSnap = await adminDb.collection('members').doc(memberId).get();
+    if (!docSnap.exists) return null;
     
-  return member || null;
+    return { id: docSnap.id, ...docSnap.data() } as any;
+  } catch (e) {
+    return null;
+  }
 }
 
 /**
@@ -55,40 +48,47 @@ export async function reportPayment(donationId: string, payload: {
   const member = await getAuthenticatedMember();
   if (!member) return { error: 'Not authenticated' };
 
-  // Ensure they own the donation
-  const { data: donation } = await supabase.from('donations').select('*').eq('id', donationId).single();
-  if (!donation || donation.member_id !== member.id) {
-    return { error: 'Unauthorized to report payment for this donation' };
+  try {
+    const donationRef = adminDb.collection('donations').doc(donationId);
+    const donationSnap = await donationRef.get();
+    
+    if (!donationSnap.exists) return { error: 'Donation not found' };
+    const donation = donationSnap.data();
+
+    if (!donation || donation.member_id !== member.id) {
+      return { error: 'Unauthorized to report payment for this donation' };
+    }
+    
+    if (donation.status !== DONATION_STATUS.PENDING && donation.status !== DONATION_STATUS.OVERDUE && donation.status !== DONATION_STATUS.REJECTED) {
+      return { error: 'Donation is not in a state to report payment.' };
+    }
+
+    const description = payload.notes 
+      ? `${payload.existingDescription || ''}\nMember Notes: ${payload.notes}` 
+      : payload.existingDescription;
+
+    await donationRef.update({
+      status: DONATION_STATUS.PAYMENT_REPORTED,
+      payment_date: payload.date,
+      payment_method: payload.method,
+      transaction_reference: payload.reference,
+      payment_proof_url: payload.proof,
+      description,
+      reported_at: new Date().toISOString(),
+      reported_by: member.id
+    });
+
+    await adminDb.collection('activity_logs').add({ 
+      member_id: member.id, 
+      action: 'REPORT_PAYMENT', 
+      details: `Payment reported for ${payload.title || payload.year}`,
+      created_at: new Date().toISOString()
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
   }
-  
-  if (donation.status !== DONATION_STATUS.PENDING && donation.status !== DONATION_STATUS.OVERDUE && donation.status !== DONATION_STATUS.REJECTED) {
-    return { error: 'Donation is not in a state to report payment.' };
-  }
-
-  const description = payload.notes 
-    ? `${payload.existingDescription || ''}\nMember Notes: ${payload.notes}` 
-    : payload.existingDescription;
-
-  const { error } = await supabase.from('donations').update({
-    status: DONATION_STATUS.PAYMENT_REPORTED,
-    payment_date: payload.date,
-    payment_method: payload.method,
-    transaction_reference: payload.reference,
-    payment_proof_url: payload.proof,
-    description,
-    reported_at: new Date().toISOString(),
-    reported_by: member.id
-  }).eq('id', donationId);
-
-  if (error) return { error: error.message };
-
-  await supabase.from('activity_logs').insert({ 
-    member_id: member.id, 
-    action: 'REPORT_PAYMENT', 
-    details: `Payment reported for ${payload.title || payload.year}` 
-  });
-
-  return { success: true };
 }
 
 /**
@@ -101,32 +101,37 @@ export async function confirmPayment(donationId: string) {
     return { error: 'Forbidden. You do not have verification permissions.' };
   }
 
-  const { data: donation } = await supabase
-    .from('donations')
-    .select('*, member:members!member_id(name, employee_id)')
-    .eq('id', donationId)
-    .single();
+  try {
+    const donationRef = adminDb.collection('donations').doc(donationId);
+    const donationSnap = await donationRef.get();
 
-  if (!donation) return { error: 'Donation not found' };
+    if (!donationSnap.exists) return { error: 'Donation not found' };
+    const donation = donationSnap.data() as any;
 
-  const receipt_number = generateReceiptNumber(donation.member_id, donation.year);
-  
-  const { error } = await supabase.from('donations').update({
-    status: DONATION_STATUS.PAID,
-    receipt_number,
-    verified_by: member.id,
-    verified_at: new Date().toISOString()
-  }).eq('id', donationId);
+    const receipt_number = generateReceiptNumber(donation.member_id, donation.year);
+    
+    await donationRef.update({
+      status: DONATION_STATUS.PAID,
+      receipt_number,
+      verified_by: member.id,
+      verified_at: new Date().toISOString()
+    });
 
-  if (error) return { error: error.message };
+    const memberSnap = await adminDb.collection('members').doc(donation.member_id).get();
+    const donorName = memberSnap.exists ? memberSnap.data()?.name : 'Unknown Member';
+    const donorId = memberSnap.exists ? memberSnap.data()?.employee_id : 'Unknown ID';
 
-  await supabase.from('activity_logs').insert({ 
-    member_id: member.id, 
-    action: 'VERIFY_PAYMENT', 
-    details: `Payment confirmed for ${(donation as any).member?.name} (${(donation as any).member?.employee_id})` 
-  });
+    await adminDb.collection('activity_logs').add({ 
+      member_id: member.id, 
+      action: 'VERIFY_PAYMENT', 
+      details: `Payment confirmed for ${donorName} (${donorId})`,
+      created_at: new Date().toISOString()
+    });
 
-  return { success: true };
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
 }
 
 /**
@@ -139,30 +144,34 @@ export async function rejectPayment(donationId: string, reason: string) {
     return { error: 'Forbidden. You do not have verification permissions.' };
   }
 
-  const { data: donation } = await supabase
-    .from('donations')
-    .select('*, member:members!member_id(name)')
-    .eq('id', donationId)
-    .single();
+  try {
+    const donationRef = adminDb.collection('donations').doc(donationId);
+    const donationSnap = await donationRef.get();
 
-  if (!donation) return { error: 'Donation not found' };
+    if (!donationSnap.exists) return { error: 'Donation not found' };
+    const donation = donationSnap.data() as any;
 
-  const { error } = await supabase.from('donations').update({
-    status: DONATION_STATUS.REJECTED,
-    rejection_reason: reason.trim(),
-    rejected_by: member.id,
-    rejected_at: new Date().toISOString()
-  }).eq('id', donationId);
+    await donationRef.update({
+      status: DONATION_STATUS.REJECTED,
+      rejection_reason: reason.trim(),
+      rejected_by: member.id,
+      rejected_at: new Date().toISOString()
+    });
 
-  if (error) return { error: error.message };
+    const memberSnap = await adminDb.collection('members').doc(donation.member_id).get();
+    const donorName = memberSnap.exists ? memberSnap.data()?.name : 'Unknown Member';
 
-  await supabase.from('activity_logs').insert({ 
-    member_id: member.id, 
-    action: 'REJECT_PAYMENT', 
-    details: `Payment rejected for ${(donation as any).member?.name}. Reason: ${reason}` 
-  });
+    await adminDb.collection('activity_logs').add({ 
+      member_id: member.id, 
+      action: 'REJECT_PAYMENT', 
+      details: `Payment rejected for ${donorName}. Reason: ${reason}`,
+      created_at: new Date().toISOString()
+    });
 
-  return { success: true };
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
 }
 
 /**
@@ -182,24 +191,28 @@ export async function createDonationRequest(payload: {
     return { error: 'Forbidden. You do not have management permissions.' };
   }
 
-  const { error } = await supabase.from('donations').insert({
-    member_id: payload.member_id,
-    year: payload.year,
-    amount: payload.amount,
-    title: payload.title,
-    description: payload.description,
-    due_date: payload.due_date,
-    status: DONATION_STATUS.PENDING,
-    created_by: member.id
-  });
+  try {
+    await adminDb.collection('donations').add({
+      member_id: payload.member_id,
+      year: payload.year,
+      amount: payload.amount,
+      title: payload.title,
+      description: payload.description,
+      due_date: payload.due_date,
+      status: DONATION_STATUS.PENDING,
+      created_by: member.id,
+      created_at: new Date().toISOString()
+    });
 
-  if (error) return { error: error.message };
+    await adminDb.collection('activity_logs').add({ 
+      member_id: member.id, 
+      action: 'CREATE_DONATION', 
+      details: `Created donation request: ${payload.title}`,
+      created_at: new Date().toISOString()
+    });
 
-  await supabase.from('activity_logs').insert({ 
-    member_id: member.id, 
-    action: 'CREATE_DONATION', 
-    details: `Created donation request: ${payload.title}` 
-  });
-
-  return { success: true };
+    return { success: true };
+  } catch (error: any) {
+    return { error: error.message };
+  }
 }

@@ -32,19 +32,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [member, loading, router, pathname, role]);
 
-  if (loading || (!isAuthorized && member)) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 rounded-full gradient-primary animate-pulse" />
-          <p className="text-muted-foreground text-sm animate-pulse">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!member) return null;
-
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar
@@ -52,12 +39,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         mobileOpen={mobileOpen}
         onCollapse={setCollapsed}
         onMobileClose={() => setMobileOpen(false)}
+        loading={loading}
       />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Header onMobileMenuOpen={() => setMobileOpen(true)} />
+        <Header onMobileMenuOpen={() => setMobileOpen(true)} loading={loading} />
         <main className="flex-1 overflow-y-auto scrollbar-thin">
           <div className="p-4 md:p-6 animate-slide-up">
-            {children}
+            {loading || (!isAuthorized && member) ? (
+              <div className="flex flex-col items-center justify-center py-32 opacity-50 animate-pulse">
+                <div className="w-12 h-12 bg-muted rounded-xl mb-4" />
+                <div className="h-4 w-32 bg-muted rounded" />
+              </div>
+            ) : !member ? null : (
+              children
+            )}
           </div>
         </main>
       </div>

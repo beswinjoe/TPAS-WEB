@@ -1,58 +1,66 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { db } from '@/lib/firebase/client';
+import { collection, getDocs, query, orderBy, where, getDoc, doc } from 'firebase/firestore';
 import type { Division, Member, SubDivision } from '@/types';
 import { Building2, ChevronDown, ChevronUp, Crown } from 'lucide-react';
 import { getInitials } from '@/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
+import { CardSkeleton } from '@/components/ui/skeletons';
 
 export default function DivisionsPage() {
-  const supabase = createClient();
   const [divisions, setDivisions] = useState<(Division & { head?: Member; memberCount: number })[]>([]);
   const [members, setMembers] = useState<Record<string, Member[]>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
   }, []);
 
   async function loadData() {
-    const [divRes, memRes] = await Promise.all([
-      // Fetch divisions and nested sub_divisions
-      supabase.from('divisions').select('*, sub_divisions(*)').order('name'),
-      supabase.from('members').select('*').eq('status', 'Active'),
-    ]);
+    setLoading(true);
+    setError(null);
+    try {
+      const divSnap = await getDocs(query(collection(db, 'divisions'), orderBy('name', 'asc')));
+      const subDivSnap = await getDocs(collection(db, 'sub_divisions'));
+      const memSnap = await getDocs(query(collection(db, 'members'), where('status', '==', 'Active')));
 
-    const allMembers = (memRes.data as Member[]) ?? [];
-    const divData = (divRes.data as Division[]) ?? [];
+      const allMembers = memSnap.docs.map(d => ({ id: d.id, ...d.data() })) as Member[];
+      const subDivs = subDivSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+      const divData = divSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
 
-    // Group members by division_id
-    const byDiv: Record<string, Member[]> = {};
-    for (const m of allMembers) {
-      if (!m.division_id) continue;
-      if (!byDiv[m.division_id]) byDiv[m.division_id] = [];
-      byDiv[m.division_id].push(m);
-    }
-    setMembers(byDiv);
-
-    // Attach head + count
-    const withMeta = await Promise.all(divData.map(async (d) => {
-      let head: Member | undefined;
-      // Note: Assuming president_id is the head of the division
-      if (d.president_id) {
-        const { data } = await supabase.from('members').select('*').eq('id', d.president_id).single();
-        head = data as Member;
+      // Group members by division_id
+      const byDiv: Record<string, Member[]> = {};
+      for (const m of allMembers) {
+        if (!m.division_id) continue;
+        if (!byDiv[m.division_id]) byDiv[m.division_id] = [];
+        byDiv[m.division_id].push(m);
       }
-      return { 
-        ...d, 
-        head, 
-        memberCount: byDiv[d.id]?.length ?? 0,
-        sub_divisions: d.sub_divisions || [] 
-      };
-    }));
+      setMembers(byDiv);
 
-    setDivisions(withMeta);
+      // Attach head + count
+      const withMeta = await Promise.all(divData.map(async (d) => {
+        let head: Member | undefined;
+        if (d.president_id) {
+          const mSnap = await getDoc(doc(db, 'members', d.president_id));
+          if (mSnap.exists()) head = { id: mSnap.id, ...mSnap.data() } as Member;
+        }
+        return { 
+          ...d, 
+          head, 
+          memberCount: byDiv[d.id]?.length ?? 0,
+          sub_divisions: subDivs.filter(s => s.division_id === d.id) 
+        } as Division & { head?: Member; memberCount: number; sub_divisions: any[] };
+      }));
+
+      setDivisions(withMeta);
+    } catch (e) {
+      setError('Unable to load divisions.');
+    }
     setLoading(false);
   }
 
@@ -71,21 +79,21 @@ export default function DivisionsPage() {
           ))
         ) : (
           <>
-            <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-5 text-white shadow-lg">
-              <p className="text-blue-200 text-xs uppercase tracking-wide mb-1">Divisions</p>
-              <p className="text-3xl font-bold">{divisions.length}</p>
+            <div className="bg-card rounded-xl border border-border p-5">
+              <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Divisions</p>
+              <p className="text-xl font-bold text-foreground text-foreground">{divisions.length}</p>
             </div>
-            <div className="bg-gradient-to-br from-purple-600 to-purple-700 rounded-2xl p-5 text-white shadow-lg">
-              <p className="text-purple-200 text-xs uppercase tracking-wide mb-1">Sub Divisions</p>
-              <p className="text-3xl font-bold">{divisions.reduce((s, d) => s + (d.sub_divisions?.length || 0), 0)}</p>
+            <div className="bg-card rounded-xl border border-border p-5">
+              <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Sub Divisions</p>
+              <p className="text-xl font-bold text-foreground text-foreground">{divisions.reduce((s, d) => s + (d.sub_divisions?.length || 0), 0)}</p>
             </div>
-            <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl p-5 text-white shadow-lg">
-              <p className="text-emerald-200 text-xs uppercase tracking-wide mb-1">Total Members</p>
-              <p className="text-3xl font-bold">{divisions.reduce((s, d) => s + d.memberCount, 0)}</p>
+            <div className="bg-card rounded-xl border border-border p-5">
+              <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Total Members</p>
+              <p className="text-xl font-bold text-foreground text-foreground">{divisions.reduce((s, d) => s + d.memberCount, 0)}</p>
             </div>
-            <div className="bg-gradient-to-br from-amber-500 to-orange-500 rounded-2xl p-5 text-white shadow-lg">
-              <p className="text-amber-200 text-xs uppercase tracking-wide mb-1">Avg. per Division</p>
-              <p className="text-3xl font-bold">
+            <div className="bg-card rounded-xl border border-border p-5">
+              <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1">Avg. per Division</p>
+              <p className="text-xl font-bold text-foreground text-foreground">
                 {divisions.length ? Math.round(divisions.reduce((s, d) => s + d.memberCount, 0) / divisions.length) : 0}
               </p>
             </div>
@@ -95,13 +103,14 @@ export default function DivisionsPage() {
 
       {/* Division Cards */}
       <div className="space-y-4">
-        {loading ? (
+        {error && !loading ? (
+          <ErrorState message={error} onRetry={loadData} />
+        ) : loading ? (
           Array(5).fill(0).map((_, i) => (
-            <div key={i} className="bg-card rounded-2xl border border-border p-5 animate-pulse">
-              <div className="h-5 w-48 bg-muted rounded mb-3" />
-              <div className="h-4 w-full bg-muted rounded" />
-            </div>
+            <CardSkeleton key={i} />
           ))
+        ) : divisions.length === 0 ? (
+          <EmptyState icon={Building2} title="No divisions" description="There are no divisions configured in the system." className="py-16" />
         ) : (
           divisions.map((div, idx) => {
             const divMembers = members[div.id] ?? [];
@@ -113,7 +122,7 @@ export default function DivisionsPage() {
                   onClick={() => toggleExpand(div.id)}
                   className="w-full flex items-center gap-4 px-5 py-4 hover:bg-muted/30 transition-colors text-left"
                 >
-                  <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-foreground text-background flex items-center justify-center shrink-0">
                     <Building2 className="w-5 h-5 text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -124,7 +133,7 @@ export default function DivisionsPage() {
                   </div>
                   {div.head && (
                     <div className="hidden sm:flex items-center gap-2 shrink-0">
-                      <Crown className="w-3.5 h-3.5 text-amber-500" />
+                      <Crown className="w-3.5 h-3.5 text-muted-foreground" />
                       <span className="text-xs font-medium text-muted-foreground">{div.head.name}</span>
                     </div>
                   )}
@@ -165,7 +174,7 @@ export default function DivisionsPage() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                           {divMembers.slice(0, 9).map((m) => (
                             <div key={m.id} className="flex items-center gap-2 p-2.5 bg-muted/40 rounded-xl border border-border/50">
-                              <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-white text-xs font-bold shrink-0">
+                              <div className="w-8 h-8 rounded-full bg-foreground flex items-center justify-center text-background text-xs font-bold shrink-0">
                                 {m.photo_url ? <img src={m.photo_url} alt="" className="w-full h-full rounded-full object-cover" /> : getInitials(m.name)}
                               </div>
                               <div className="min-w-0">

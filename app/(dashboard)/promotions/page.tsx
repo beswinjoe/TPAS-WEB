@@ -1,48 +1,50 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { db } from '@/lib/firebase/client';
+import { collection, getDocs, doc, query, orderBy, where, getDoc } from 'firebase/firestore';
 import { useAuth } from '@/lib/auth-context';
 import type { Promotion, Role } from '@/types';
 import { formatDate, cn } from '@/lib/utils';
 import { ROLE_COLORS } from '@/lib/constants';
 import { TrendingUp, ArrowDown, BadgeCheck } from 'lucide-react';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
+import { ListSkeleton } from '@/components/ui/skeletons';
 
 const ROLE_ORDER: Role[] = ['Member', 'Treasurer', 'Secretary', 'President'];
 
 export default function PromotionsPage() {
   const { member } = useAuth();
-  const supabase = createClient();
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [approvers, setApprovers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (member) loadData();
   }, [member]);
 
   async function loadData() {
-    const { data } = await supabase
-      .from('promotions')
-      .select('*')
-      .eq('member_id', member!.id)
-      .order('promotion_date', { ascending: false });
+    setLoading(true);
+    setError(null);
+    try {
+      const snap = await getDocs(query(collection(db, 'promotions'), where('member_id', '==', member!.id), orderBy('promotion_date', 'desc')));
+      const promos = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Promotion[];
+      setPromotions(promos);
 
-    const promos = (data as Promotion[]) ?? [];
-    setPromotions(promos);
-
-    // Fetch approver names
-    const approverIds = [...new Set(promos.map(p => p.approved_by).filter(Boolean))];
-    if (approverIds.length > 0) {
-      const { data: approverData } = await supabase
-        .from('members')
-        .select('id, name')
-        .in('id', approverIds);
-      const map: Record<string, string> = {};
-      for (const a of (approverData ?? [])) {
-        map[a.id] = a.name;
+      // Fetch approver names
+      const approverIds = [...new Set(promos.map(p => p.approved_by).filter(Boolean))];
+      if (approverIds.length > 0) {
+        const map: Record<string, string> = {};
+        for (const id of approverIds) {
+          const docSnap = await getDoc(doc(db, 'members', id));
+          if (docSnap.exists()) map[id] = docSnap.data().name;
+        }
+        setApprovers(map);
       }
-      setApprovers(map);
+    } catch (error) {
+      setError('Unable to load promotion history.');
     }
     setLoading(false);
   }
@@ -52,7 +54,7 @@ export default function PromotionsPage() {
       {/* Header */}
       <div className="bg-card rounded-2xl border border-border p-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className="p-2.5 gradient-primary rounded-xl">
+          <div className="p-2.5 bg-foreground text-background rounded-xl">
             <TrendingUp className="w-5 h-5 text-white" />
           </div>
           <div>
@@ -89,24 +91,14 @@ export default function PromotionsPage() {
           <h3 className="font-semibold text-foreground">Promotion Timeline</h3>
         </div>
 
-        {loading ? (
-          <div className="p-6 space-y-6">
-            {Array(3).fill(0).map((_, i) => (
-              <div key={i} className="flex gap-4 animate-pulse">
-                <div className="w-10 h-10 rounded-full bg-muted shrink-0" />
-                <div className="flex-1">
-                  <div className="h-4 w-48 bg-muted rounded mb-2" />
-                  <div className="h-3 w-32 bg-muted rounded" />
-                </div>
-              </div>
-            ))}
+        {error && !loading ? (
+          <ErrorState message={error} onRetry={loadData} />
+        ) : loading ? (
+          <div className="p-6">
+            <ListSkeleton items={3} />
           </div>
         ) : promotions.length === 0 ? (
-          <div className="text-center py-16">
-            <TrendingUp className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-foreground font-medium">No promotions yet</p>
-            <p className="text-muted-foreground text-sm mt-1">Your promotion history will appear here</p>
-          </div>
+          <EmptyState icon={TrendingUp} title="No promotions yet" description="Your promotion history will appear here." className="py-16" />
         ) : (
           <div className="p-6">
             <div className="relative">
@@ -116,7 +108,7 @@ export default function PromotionsPage() {
               <div className="space-y-6">
                 {promotions.map((p, i) => (
                   <div key={p.id} className="flex gap-4 relative animate-slide-up" style={{ animationDelay: `${i * 100}ms` }}>
-                    <div className="shrink-0 w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-white z-10 shadow-md">
+                    <div className="shrink-0 w-10 h-10 rounded-full bg-foreground flex items-center justify-center text-background z-10">
                       <TrendingUp className="w-4 h-4" />
                     </div>
                     <div className="flex-1 bg-muted/40 rounded-xl p-4 border border-border/50">
@@ -140,7 +132,7 @@ export default function PromotionsPage() {
                         </div>
                         <div className="text-right shrink-0">
                           <p className="text-xs font-semibold text-foreground">{formatDate(p.promotion_date)}</p>
-                          <span className="text-xs text-emerald-600 font-medium">✓ Confirmed</span>
+                          <span className="text-xs text-foreground font-medium">✓ Confirmed</span>
                         </div>
                       </div>
                     </div>

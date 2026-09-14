@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { createClient } from '@/lib/supabase/client';
+import { db } from '@/lib/firebase/client';
+import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { getAuth, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { formatDate, getInitials } from '@/lib/utils';
 import { User, Phone, Mail, Lock, Camera, Save, Loader2, Eye, EyeOff, Briefcase, Building2, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
@@ -12,7 +14,6 @@ const ROLES = ['President', 'Secretary', 'Treasurer', 'Member', 'Admin'];
 
 export default function ProfilePage() {
   const { member, updateMember } = useAuth();
-  const supabase = createClient();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
@@ -32,16 +33,16 @@ export default function ProfilePage() {
   const [subDivisions, setSubDivisions] = useState<SubDivision[]>([]);
 
   // Load divisions for Admin
-  useState(() => {
+  useEffect(() => {
     if (member?.role === 'Admin') {
-      supabase.from('divisions').select('*').then(({ data }) => {
-        if (data) setDivisions(data);
+      getDocs(collection(db, 'divisions')).then(snap => {
+        setDivisions(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Division[]);
       });
-      supabase.from('sub_divisions').select('*').then(({ data }) => {
-        if (data) setSubDivisions(data);
+      getDocs(collection(db, 'sub_divisions')).then(snap => {
+        setSubDivisions(snap.docs.map(d => ({ id: d.id, ...d.data() })) as SubDivision[]);
       });
     }
-  });
+  }, [member?.role]);
 
   async function handleProfileSave(e: React.FormEvent) {
     e.preventDefault();
@@ -55,17 +56,12 @@ export default function ProfilePage() {
       updateData.role = form.role;
     }
 
-    const { data, error } = await supabase
-      .from('members')
-      .update(updateData)
-      .eq('id', member!.id)
-      .select()
-      .single();
-    if (error) {
-      toast.error('Failed to update profile.');
-    } else {
+    try {
+      await updateDoc(doc(db, 'members', member!.id), updateData);
       updateMember(updateData);
       toast.success('Profile updated successfully!');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update profile.');
     }
     setSaving(false);
   }
@@ -86,29 +82,27 @@ export default function ProfilePage() {
     }
     setSavingPw(true);
 
-    // Check current password
-    const { data: authData } = await supabase
-      .from('member_auth')
-      .select('password_hash')
-      .eq('member_id', member!.id)
-      .single();
+    const auth = getAuth();
+    const user = auth.currentUser;
 
-    if (authData?.password_hash !== passwords.current) {
-      toast.error('Current password is incorrect.');
+    if (!user || !user.email) {
+      toast.error('Not authenticated.');
       setSavingPw(false);
       return;
     }
 
-    const { error } = await supabase
-      .from('member_auth')
-      .update({ password_hash: passwords.newPass })
-      .eq('member_id', member!.id);
-
-    if (error) {
-      toast.error('Failed to update password.');
-    } else {
+    try {
+      const credential = EmailAuthProvider.credential(user.email, passwords.current);
+      await reauthenticateWithCredential(user, credential);
+      await updatePassword(user, passwords.newPass);
       toast.success('Password changed successfully!');
       setPasswords({ current: '', newPass: '', confirm: '' });
+    } catch (error: any) {
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        toast.error('Current password is incorrect.');
+      } else {
+        toast.error('Failed to update password.');
+      }
     }
     setSavingPw(false);
   }
@@ -118,22 +112,22 @@ export default function ProfilePage() {
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
       {/* Profile Header */}
-      <div className="bg-card rounded-2xl border border-border overflow-hidden">
-        <div className="h-24 gradient-primary relative">
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="h-20 bg-muted relative">
           <div className="absolute -bottom-10 left-6">
             <div className="relative">
-              <div className="w-20 h-20 rounded-2xl border-4 border-card gradient-primary flex items-center justify-center text-white text-2xl font-bold shadow-xl overflow-hidden">
+              <div className="w-20 h-20 rounded-2xl border-4 border-card bg-foreground flex items-center justify-center text-background text-2xl font-bold shadow-lg overflow-hidden">
                 {member.photo_url
                   ? <img src={member.photo_url} alt="" className="w-full h-full object-cover" />
                   : getInitials(member.name)}
               </div>
               <button
                 onClick={() => fileRef.current?.click()}
-                className="absolute -bottom-1 -right-1 w-7 h-7 bg-primary rounded-lg flex items-center justify-center text-white shadow-md hover:bg-primary/90 transition-colors"
+                className="absolute -bottom-1 -right-1 w-7 h-7 bg-foreground rounded-lg flex items-center justify-center text-background shadow-md hover:opacity-80 transition-all"
               >
                 <Camera className="w-3.5 h-3.5" />
               </button>
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={() => toast.info('Photo upload requires Supabase Storage configuration.')} />
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={() => toast.info('Photo upload requires Firebase Storage configuration.')} />
             </div>
           </div>
         </div>
@@ -143,7 +137,7 @@ export default function ProfilePage() {
           <div className="flex flex-wrap gap-3 mt-3 text-sm text-muted-foreground">
             {member.division && <span>📍 {member.division}</span>}
             <span>📅 Since {formatDate(member.joining_date)}</span>
-            <span className={`font-medium ${member.status === 'Active' ? 'text-emerald-600' : 'text-amber-600'}`}>
+            <span className={`font-medium ${member.status === 'Active' ? 'text-foreground' : 'text-muted-foreground'}`}>
               ● {member.status}
             </span>
           </div>
@@ -154,7 +148,7 @@ export default function ProfilePage() {
         {/* Contact Information */}
         <div className="bg-card rounded-2xl border border-border overflow-hidden">
           <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
-            <User className="w-4.5 h-4.5 text-primary" />
+            <User className="w-4 h-4 text-muted-foreground" />
             <h3 className="font-semibold text-foreground">Contact Information</h3>
           </div>
           <form onSubmit={handleProfileSave} className="p-5 space-y-4">
@@ -261,14 +255,14 @@ export default function ProfilePage() {
                 value={form.email}
                 onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                 placeholder="Enter email address"
-                className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                className="w-full px-3 py-2.5 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition-all"
               />
             </div>
 
             <button
               type="submit"
               disabled={saving}
-              className="w-full flex items-center justify-center gap-2 py-2.5 gradient-primary text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-all shadow-md shadow-primary/20 disabled:opacity-70"
+              className="btn-primary w-full py-2.5 disabled:opacity-70"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4" /> Save Changes</>}
             </button>
@@ -278,7 +272,7 @@ export default function ProfilePage() {
         {/* Change Password */}
         <div className="bg-card rounded-2xl border border-border overflow-hidden">
           <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
-            <Lock className="w-4.5 h-4.5 text-primary" />
+            <Lock className="w-4 h-4 text-muted-foreground" />
             <h3 className="font-semibold text-foreground">Change Password</h3>
           </div>
           <form onSubmit={handlePasswordChange} className="p-5 space-y-4">
@@ -295,7 +289,7 @@ export default function ProfilePage() {
                     value={passwords[key as keyof typeof passwords]}
                     onChange={e => setPasswords(p => ({ ...p, [key]: e.target.value }))}
                     placeholder={`Enter ${label.toLowerCase()}`}
-                    className="w-full px-3 py-2.5 pr-10 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                    className="w-full px-3 py-2.5 pr-10 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition-all"
                   />
                   <button
                     type="button"
@@ -315,7 +309,7 @@ export default function ProfilePage() {
             <button
               type="submit"
               disabled={savingPw}
-              className="w-full flex items-center justify-center gap-2 py-2.5 gradient-primary text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-all shadow-md shadow-primary/20 disabled:opacity-70"
+              className="btn-primary w-full py-2.5 disabled:opacity-70"
             >
               {savingPw ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Lock className="w-4 h-4" /> Update Password</>}
             </button>

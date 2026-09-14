@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { db } from '@/lib/firebase/client';
+import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { useAuth } from '@/lib/auth-context';
 import type { ActivityLog } from '@/types';
 import { formatDate, cn } from '@/lib/utils';
@@ -9,6 +10,9 @@ import {
   Bell, Users, IndianRupee, TrendingUp, UserCheck, CreditCard,
   Activity, Check, CheckCheck, Trash2
 } from 'lucide-react';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
+import { ListSkeleton } from '@/components/ui/skeletons';
 
 const ACTION_ICONS: Record<string, React.ElementType> = {
   LOGIN: UserCheck,
@@ -22,14 +26,14 @@ const ACTION_ICONS: Record<string, React.ElementType> = {
 };
 
 const ACTION_COLORS: Record<string, string> = {
-  LOGIN: 'text-blue-500 bg-blue-50 dark:bg-blue-950',
-  LOGOUT: 'text-gray-500 bg-gray-50 dark:bg-gray-950',
-  ADD_MEMBER: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950',
-  RESET_PASSWORD: 'text-amber-500 bg-amber-50 dark:bg-amber-950',
-  DELETE_MEMBER: 'text-red-500 bg-red-50 dark:bg-red-950',
-  UPDATE_MEMBER: 'text-purple-500 bg-purple-50 dark:bg-purple-950',
-  PAY_DONATION: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950',
-  PROMOTION: 'text-indigo-500 bg-indigo-50 dark:bg-indigo-950',
+  LOGIN: 'text-muted-foreground bg-muted',
+  LOGOUT: 'text-muted-foreground bg-muted',
+  ADD_MEMBER: 'text-muted-foreground bg-muted',
+  RESET_PASSWORD: 'text-muted-foreground bg-muted',
+  DELETE_MEMBER: 'text-muted-foreground bg-muted',
+  UPDATE_MEMBER: 'text-muted-foreground bg-muted',
+  PAY_DONATION: 'text-muted-foreground bg-muted',
+  PROMOTION: 'text-muted-foreground bg-muted',
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -45,9 +49,9 @@ const ACTION_LABELS: Record<string, string> = {
 
 export default function NotificationsPage() {
   const { member } = useAuth();
-  const supabase = createClient();
   const [notifications, setNotifications] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const [filterAction, setFilterAction] = useState('');
 
@@ -64,12 +68,14 @@ export default function NotificationsPage() {
   }, [member]);
 
   async function loadNotifications() {
-    const { data } = await supabase
-      .from('activity_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100);
-    setNotifications((data as ActivityLog[]) ?? []);
+    setLoading(true);
+    setError(null);
+    try {
+      const snap = await getDocs(query(collection(db, 'activity_logs'), orderBy('created_at', 'desc'), limit(100)));
+      setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() })) as ActivityLog[]);
+    } catch (error) {
+      setError('Unable to load notifications.');
+    }
     setLoading(false);
   }
 
@@ -122,7 +128,7 @@ export default function NotificationsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
-            <Bell className="w-5 h-5 text-primary" />
+            <Bell className="w-5 h-5 text-muted-foreground" />
             Notification Center
           </h2>
           <p className="text-sm text-muted-foreground">
@@ -133,14 +139,14 @@ export default function NotificationsPage() {
           <select
             value={filterAction}
             onChange={(e) => setFilterAction(e.target.value)}
-            className="px-3 py-2 bg-muted/50 border border-border rounded-xl text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="px-3 py-2 bg-background border border-border rounded-lg text-xs text-foreground focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition-all"
           >
             <option value="">All Types</option>
             {actions.map(a => <option key={a} value={a}>{ACTION_LABELS[a] ?? a}</option>)}
           </select>
           <button
             onClick={markAllAsRead}
-            className="flex items-center gap-1.5 px-3 py-2 bg-card border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 bg-card border border-border rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors"
           >
             <CheckCheck className="w-3.5 h-3.5" /> Mark All Read
           </button>
@@ -148,30 +154,20 @@ export default function NotificationsPage() {
       </div>
 
       {/* Notifications List */}
-      <div className="bg-card rounded-2xl border border-border overflow-hidden">
-        {loading ? (
-          <div className="divide-y divide-border">
-            {Array(8).fill(0).map((_, i) => (
-              <div key={i} className="px-5 py-4 flex items-center gap-3 animate-pulse">
-                <div className="w-10 h-10 rounded-xl bg-muted" />
-                <div className="flex-1">
-                  <div className="h-3.5 w-64 bg-muted rounded mb-2" />
-                  <div className="h-3 w-24 bg-muted rounded" />
-                </div>
-              </div>
-            ))}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        {error && !loading ? (
+          <ErrorState message={error} onRetry={loadNotifications} />
+        ) : loading ? (
+          <div className="p-4">
+            <ListSkeleton items={8} />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-16">
-            <Bell className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-            <p className="text-foreground font-medium">No notifications</p>
-            <p className="text-muted-foreground text-sm mt-1">You&apos;re all caught up!</p>
-          </div>
+          <EmptyState icon={Bell} title="No notifications" description="You're all caught up!" className="py-16" />
         ) : (
           <div className="divide-y divide-border">
             {filtered.map((log) => {
               const Icon = ACTION_ICONS[log.action] ?? Activity;
-              const colorClass = ACTION_COLORS[log.action] ?? 'text-gray-500 bg-gray-50 dark:bg-gray-950';
+              const colorClass = 'text-muted-foreground bg-muted';
               const isRead = readIds.has(log.id);
               return (
                 <div

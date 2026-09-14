@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { db } from '@/lib/firebase/client';
+import { collection, getDocs, doc, deleteDoc, query, orderBy, limit, where } from 'firebase/firestore';
 import { useAuth } from '@/lib/auth-context';
 import type { Member, Donation, Promotion, Role } from '@/types';
 import { DONATION_STATUS, ROLE_COLORS, CAN_EDIT_MEMBERS } from '@/lib/constants';
@@ -10,10 +11,14 @@ import {
   Search, Filter, X, Edit2, Trash2, Phone, Mail,
   ChevronLeft, ChevronRight, UserCircle, Loader2, Plus,
   Download, Printer, ArrowUpDown, FileSpreadsheet, IndianRupee,
-  TrendingUp, CalendarDays, CreditCard, CheckCircle2, Clock
+  TrendingUp, CalendarDays, CreditCard, CheckCircle2, Clock, Users
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
+import { TableSkeleton, ListSkeleton } from '@/components/ui/skeletons';
+import { Modal } from '@/components/ui/modal';
 
 const ROLES: Role[] = ['President', 'Secretary', 'Treasurer', 'Member', 'Admin'];
 const STATUS_OPTIONS = ['Active', 'Inactive', 'Pending'];
@@ -29,7 +34,6 @@ const SORT_OPTIONS = [
 
 export default function MembersPage() {
   const { member: me, role } = useAuth();
-  const supabase = createClient();
   const canEdit = role && CAN_EDIT_MEMBERS.includes(role as Role);
 
   const [members, setMembers] = useState<Member[]>([]);
@@ -47,6 +51,7 @@ export default function MembersPage() {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [donationStatusMap, setDonationStatusMap] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
 
   // For enhanced modal
   const [memberDonations, setMemberDonations] = useState<Donation[]>([]);
@@ -58,17 +63,19 @@ export default function MembersPage() {
   const [subDivisions, setSubDivisions] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
-    supabase.from('divisions').select('id, name').then(({ data }) => {
-      setDivisions(data || []);
-    });
-  }, []);
+    if (me) {
+      getDocs(collection(db, 'divisions')).then((snap) => {
+        setDivisions(snap.docs.map(d => ({ id: d.id, ...d.data() })) as any);
+      });
+    }
+  }, [me]);
 
   // Sub-divisions based on selected division
   useEffect(() => {
     if (filterDivision) {
-      supabase.from('sub_divisions').select('id, name').eq('division_id', filterDivision)
-        .then(({ data }) => {
-          setSubDivisions(data || []);
+      getDocs(query(collection(db, 'sub_divisions'), where('division_id', '==', filterDivision)))
+        .then((snap) => {
+          setSubDivisions(snap.docs.map(d => ({ id: d.id, ...d.data() })) as any);
         });
     } else {
       setSubDivisions([]);
@@ -79,10 +86,11 @@ export default function MembersPage() {
   useEffect(() => {
     // Load donation statuses for current year
     const currentYear = new Date().getFullYear();
-    supabase.from('donations').select('member_id, status').eq('year', currentYear)
-      .then(({ data }) => {
+    getDocs(query(collection(db, 'donations'), where('year', '==', currentYear)))
+      .then((snap) => {
         const map: Record<string, string> = {};
-        for (const d of (data ?? [])) {
+        for (const doc of snap.docs) {
+          const d = doc.data() as Donation;
           map[d.member_id] = d.status;
         }
         setDonationStatusMap(map);
@@ -91,39 +99,52 @@ export default function MembersPage() {
 
   const loadMembers = useCallback(async () => {
     setLoading(true);
-    let query = supabase.from('members').select('*', { count: 'exact' });
+    setError(null);
+    try {
+      let q = query(collection(db, 'members'));
 
-    if (search) {
-      query = query.or(`name.ilike.%${search}%,employee_id.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
-    }
-    if (filterRole) query = query.eq('role', filterRole);
-    if (filterDivision) query = query.eq('division_id', filterDivision);
-    if (filterSubDivision) query = query.eq('sub_division_id', filterSubDivision);
-    if (filterStatus) query = query.eq('status', filterStatus);
+      if (filterRole) q = query(q, where('role', '==', filterRole));
+      if (filterDivision) q = query(q, where('division_id', '==', filterDivision));
+      if (filterSubDivision) q = query(q, where('sub_division_id', '==', filterSubDivision));
+      if (filterStatus) q = query(q, where('status', '==', filterStatus));
 
-    // Sort
-    const [sortField, sortDir] = sortBy.split('-');
-    const ascending = sortDir === 'asc';
-    if (sortField === 'name') query = query.order('name', { ascending });
-    else if (sortField === 'joining') query = query.order('joining_date', { ascending, nullsFirst: false });
-    else if (sortField === 'eid') query = query.order('employee_id', { ascending });
+      // Sort
+      const [sortField, sortDir] = sortBy.split('-');
+      const ascending = sortDir === 'asc' ? 'asc' : 'desc';
+      if (sortField === 'name') q = query(q, orderBy('name', ascending));
+      else if (sortField === 'joining') q = query(q, orderBy('joining_date', ascending));
+      else if (sortField === 'eid') q = query(q, orderBy('employee_id', ascending));
 
-    query = query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+      const snap = await getDocs(q);
+      let allData = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Member[];
+      
+      // Client-side search (since Firestore doesn't support ilike easily)
+      if (search) {
+         const lower = search.toLowerCase();
+         allData = allData.filter(m => 
+            m.name?.toLowerCase().includes(lower) || 
+            m.employee_id?.toLowerCase().includes(lower) || 
+            m.email?.toLowerCase().includes(lower) || 
+            m.phone?.toLowerCase().includes(lower)
+         );
+      }
 
-    const { data, count, error } = await query;
-    if (!error) {
-      let filtered = data as Member[];
       // Client-side donation status filter
       if (filterDonation) {
-        filtered = filtered.filter(m => {
+        allData = allData.filter(m => {
           const status = donationStatusMap[m.id];
           if (filterDonation === DONATION_STATUS.PAID) return status === DONATION_STATUS.PAID;
           if (filterDonation === DONATION_STATUS.PENDING) return status === DONATION_STATUS.PENDING || !status;
           return true;
         });
       }
-      setMembers(filtered);
-      setTotal(filterDonation ? filtered.length : (count ?? 0));
+
+      setTotal(allData.length);
+      // Client-side pagination
+      setMembers(allData.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
+    } catch (err) {
+       console.error(err);
+       setError('Unable to load members.');
     }
     setLoading(false);
   }, [search, filterRole, filterDivision, filterSubDivision, filterStatus, filterDonation, sortBy, page, donationStatusMap]);
@@ -134,12 +155,12 @@ export default function MembersPage() {
   async function handleDelete(id: string) {
     if (!confirm('Are you sure you want to delete this member?')) return;
     setDeleting(id);
-    const { error } = await supabase.from('members').delete().eq('id', id);
-    if (error) {
-      toast.error('Failed to delete member.');
-    } else {
+    try {
+      await deleteDoc(doc(db, 'members', id));
       toast.success('Member deleted.');
       loadMembers();
+    } catch (e) {
+      toast.error('Failed to delete member.');
     }
     setDeleting(null);
   }
@@ -147,12 +168,12 @@ export default function MembersPage() {
   async function openMemberDetail(m: Member) {
     setSelectedMember(m);
     setModalLoading(true);
-    const [donRes, promoRes] = await Promise.all([
-      supabase.from('donations').select('*').eq('member_id', m.id).order('year', { ascending: false }).limit(5),
-      supabase.from('promotions').select('*').eq('member_id', m.id).order('promotion_date', { ascending: false }),
+    const [donRes, promoRes] = await Promise.allSettled([
+      getDocs(query(collection(db, 'donations'), where('member_id', '==', m.id), orderBy('year', 'desc'), limit(5))),
+      getDocs(query(collection(db, 'promotions'), where('member_id', '==', m.id), orderBy('promotion_date', 'desc')))
     ]);
-    setMemberDonations((donRes.data as Donation[]) ?? []);
-    setMemberPromotions((promoRes.data as Promotion[]) ?? []);
+    if (donRes.status === 'fulfilled') setMemberDonations(donRes.value.docs.map(d => ({ id: d.id, ...d.data() })) as Donation[]);
+    if (promoRes.status === 'fulfilled') setMemberPromotions(promoRes.value.docs.map(d => ({ id: d.id, ...d.data() })) as Promotion[]);
     setModalLoading(false);
   }
 
@@ -211,7 +232,7 @@ export default function MembersPage() {
             <Printer className="w-3.5 h-3.5" /> Print
           </button>
           {canEdit && (
-            <Link href="/admin?tab=members&action=add" className="flex items-center gap-2 px-4 py-2.5 gradient-primary text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-all shadow-md shadow-primary/20">
+            <Link href="/admin?tab=members&action=add" className="flex items-center gap-2 px-4 py-2.5 btn-primary">
               <Plus className="w-4 h-4" />
               Add Member
             </Link>
@@ -286,7 +307,9 @@ export default function MembersPage() {
       </div>
 
       {/* Member Grid */}
-      {loading ? (
+      {error && !loading ? (
+        <ErrorState message={error} onRetry={loadMembers} />
+      ) : loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {Array(8).fill(0).map((_, i) => (
             <div key={i} className="bg-card rounded-2xl border border-border p-5 animate-pulse">
@@ -303,11 +326,7 @@ export default function MembersPage() {
           ))}
         </div>
       ) : members.length === 0 ? (
-        <div className="text-center py-16 bg-card rounded-2xl border border-border">
-          <UserCircle className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-          <p className="text-foreground font-medium">No members found</p>
-          <p className="text-muted-foreground text-sm mt-1">Try adjusting your search or filters</p>
-        </div>
+        <EmptyState icon={Users} title={search ? 'No members found' : 'No members yet'} description={search ? 'Try adjusting your search or filters.' : 'Members will appear here once they are added.'} className="py-16 bg-card rounded-2xl border border-border" />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {members.map((m) => {
@@ -320,13 +339,13 @@ export default function MembersPage() {
               >
                 {/* Status dot */}
                 <div className={cn('absolute top-4 right-4 w-2.5 h-2.5 rounded-full',
-                  m.status === 'Active' ? 'bg-emerald-500' :
-                  m.status === 'Inactive' ? 'bg-gray-400' : 'bg-amber-500'
+                  m.status === 'Active' ? 'bg-foreground' :
+                  m.status === 'Inactive' ? 'bg-muted-foreground/40' : 'bg-muted-foreground'
                 )} title={m.status} />
 
                 {/* Avatar + Name */}
                 <div className="flex items-start gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-sm shrink-0">
+                  <div className="w-12 h-12 rounded-full bg-foreground flex items-center justify-center text-background font-semibold text-sm shrink-0">
                     {m.photo_url
                       ? <img src={m.photo_url} alt="" className="w-full h-full rounded-full object-cover" />
                       : getInitials(m.name)}
@@ -344,7 +363,7 @@ export default function MembersPage() {
                   </span>
                   {dStatus && (
                     <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1',
-                      dStatus === DONATION_STATUS.PAID ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
+                      dStatus === DONATION_STATUS.PAID ? 'bg-muted text-foreground border border-border' : 'bg-muted text-muted-foreground border border-border'
                     )}>
                       {dStatus === DONATION_STATUS.PAID ? <CheckCircle2 className="w-2.5 h-2.5" /> : <Clock className="w-2.5 h-2.5" />}
                       {dStatus === DONATION_STATUS.PAID ? 'Paid' : 'Pending'}
@@ -366,7 +385,7 @@ export default function MembersPage() {
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={(e) => { e.stopPropagation(); toast.info('Edit from Admin Panel'); }}
-                        className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950 text-blue-600 transition-colors"
+                        className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                         title="Edit"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
@@ -374,7 +393,7 @@ export default function MembersPage() {
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(m.id); }}
                         disabled={deleting === m.id}
-                        className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 text-red-600 transition-colors"
+                        className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                         title="Delete"
                       >
                         {deleting === m.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
@@ -409,7 +428,7 @@ export default function MembersPage() {
                 key={i}
                 onClick={() => setPage(i)}
                 className={cn('w-9 h-9 rounded-xl text-sm font-medium transition-all btn-interactive',
-                  i === page ? 'gradient-primary text-white shadow-md' : 'border border-border hover:bg-muted text-muted-foreground'
+                  i === page ? 'bg-foreground text-background' : 'border border-border hover:bg-muted text-muted-foreground'
                 )}
               >
                 {i + 1}
@@ -427,12 +446,18 @@ export default function MembersPage() {
       )}
 
       {/* Enhanced Member Detail Modal */}
-      {selectedMember && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedMember(null)}>
-          <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-lg p-6 animate-slide-up max-h-[90vh] overflow-y-auto scrollbar-thin" onClick={(e) => e.stopPropagation()}>
+      {/* Enhanced Member Detail Modal */}
+      <Modal
+        isOpen={!!selectedMember}
+        onClose={() => setSelectedMember(null)}
+        title="Member Details"
+        maxWidth="max-w-lg"
+      >
+        {selectedMember && (
+          <>
             <div className="flex items-start justify-between mb-5">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center text-white font-bold text-xl">
+                <div className="w-16 h-16 rounded-2xl bg-foreground flex items-center justify-center text-background font-bold text-xl">
                   {selectedMember.photo_url
                     ? <img src={selectedMember.photo_url} alt="" className="w-full h-full rounded-2xl object-cover" />
                     : getInitials(selectedMember.name)}
@@ -445,9 +470,6 @@ export default function MembersPage() {
                   </span>
                 </div>
               </div>
-              <button onClick={() => setSelectedMember(null)} className="p-2 hover:bg-muted rounded-xl transition-colors">
-                <X className="w-5 h-5 text-muted-foreground" />
-              </button>
             </div>
 
             {/* Basic Info */}
@@ -526,7 +548,7 @@ export default function MembersPage() {
                         <span className="text-muted-foreground ml-2">{formatCurrency(d.amount)}</span>
                       </div>
                       <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full',
-                        d.status === DONATION_STATUS.PAID ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
+                        d.status === DONATION_STATUS.PAID ? 'bg-muted text-foreground border border-border' : 'bg-muted text-muted-foreground border border-border'
                       )}>
                         {d.status === DONATION_STATUS.PAID ? 'Paid' : 'Pending'}
                       </span>
@@ -548,9 +570,9 @@ export default function MembersPage() {
                 </Link>
               </div>
             )}
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

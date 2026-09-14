@@ -1,13 +1,18 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { db } from '@/lib/firebase/client';
+import { collection, getDocs, doc, deleteDoc, addDoc, query, orderBy } from 'firebase/firestore';
 import { useAuth } from '@/lib/auth-context';
 import type { Document, DocumentCategory, Role } from '@/types';
 import { formatDate, cn } from '@/lib/utils';
 import { CAN_UPLOAD_DOCUMENTS } from '@/lib/constants';
-import { FolderOpen, Download, FileText, BookOpen, Scroll, BarChart3, FileCheck, Plus, X, Loader2 } from 'lucide-react';
+import { FolderOpen, Download, FileText, BookOpen, Scroll, BarChart3, FileCheck, Plus, X, Loader2, Upload, ExternalLink, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ErrorState } from '@/components/ui/error-state';
+import { CardSkeleton } from '@/components/ui/skeletons';
+import { Modal } from '@/components/ui/modal';
 
 const CATEGORIES: DocumentCategory[] = ['Membership Forms', 'Meeting Minutes', 'Rules', 'Annual Reports', 'Circulars'];
 
@@ -20,20 +25,20 @@ const CAT_ICONS: Record<DocumentCategory, React.ElementType> = {
 };
 
 const CAT_COLORS: Record<DocumentCategory, string> = {
-  'Membership Forms': 'bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400',
-  'Meeting Minutes': 'bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400',
-  'Rules': 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400',
-  'Annual Reports': 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400',
-  'Circulars': 'bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400',
+  'Membership Forms': 'bg-muted text-muted-foreground',
+  'Meeting Minutes': 'bg-muted text-muted-foreground',
+  'Rules': 'bg-muted text-muted-foreground',
+  'Annual Reports': 'bg-muted text-muted-foreground',
+  'Circulars': 'bg-muted text-muted-foreground',
 };
 
 export default function DocumentsPage() {
   const { member, role } = useAuth();
-  const supabase = createClient();
   const canUpload = role && CAN_UPLOAD_DOCUMENTS.includes(role as Role);
 
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<DocumentCategory | 'All'>('All');
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -42,8 +47,14 @@ export default function DocumentsPage() {
   useEffect(() => { loadDocuments(); }, []);
 
   async function loadDocuments() {
-    const { data } = await supabase.from('documents').select('*').order('created_at', { ascending: false });
-    setDocuments((data as Document[]) ?? []);
+    setLoading(true);
+    setError(null);
+    try {
+      const snap = await getDocs(query(collection(db, 'documents'), orderBy('created_at', 'desc')));
+      setDocuments(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Document[]);
+    } catch (error) {
+      setError('Unable to load documents.');
+    }
     setLoading(false);
   }
 
@@ -51,20 +62,26 @@ export default function DocumentsPage() {
     e.preventDefault();
     if (!form.title || !form.file_url) { toast.error('Please fill all fields.'); return; }
     setSubmitting(true);
-    const { error } = await supabase.from('documents').insert({ ...form, uploaded_by: member!.id });
-    if (error) { toast.error('Failed to add document.'); }
-    else { toast.success('Document added!'); setShowForm(false); setForm({ title: '', category: 'Membership Forms', file_url: '' }); loadDocuments(); }
+    try {
+      await addDoc(collection(db, 'documents'), { ...form, uploaded_by: member!.id, created_at: new Date().toISOString() });
+      toast.success('Document added!');
+      setShowForm(false);
+      setForm({ title: '', category: 'Membership Forms', file_url: '' });
+      loadDocuments();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to add document.');
+    }
     setSubmitting(false);
   }
 
   async function handleDelete(id: string) {
     if (!confirm('Are you sure you want to delete this document?')) return;
-    const { error } = await supabase.from('documents').delete().eq('id', id);
-    if (error) {
-      toast.error('Failed to delete document.');
-    } else {
+    try {
+      await deleteDoc(doc(db, 'documents', id));
       toast.success('Document deleted.');
       loadDocuments();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete document.');
     }
   }
 
@@ -81,7 +98,7 @@ export default function DocumentsPage() {
         {canUpload && (
           <button
             onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 px-4 py-2.5 gradient-primary text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-all shadow-md shadow-primary/20"
+            className="flex items-center gap-2 px-4 py-2.5 btn-primary"
           >
             <Plus className="w-4 h-4" />
             Add Document
@@ -100,7 +117,7 @@ export default function DocumentsPage() {
               className={cn(
                 'flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium transition-all border',
                 activeCategory === cat
-                  ? 'gradient-primary text-white border-transparent shadow-md'
+                  ? 'bg-foreground text-background border-foreground'
                   : 'bg-card text-muted-foreground border-border hover:bg-muted hover:text-foreground'
               )}
             >
@@ -117,22 +134,19 @@ export default function DocumentsPage() {
       </div>
 
       {/* Documents Grid */}
-      {loading ? (
+      {error && !loading ? (
+        <ErrorState message={error} onRetry={loadDocuments} />
+      ) : loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array(6).fill(0).map((_, i) => (
-            <div key={i} className="bg-card rounded-2xl border border-border p-5 animate-pulse">
-              <div className="w-12 h-12 bg-muted rounded-xl mb-3" />
-              <div className="h-4 w-3/4 bg-muted rounded mb-2" />
-              <div className="h-3 w-1/2 bg-muted rounded" />
-            </div>
-          ))}
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16 bg-card rounded-2xl border border-border">
-          <FolderOpen className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
-          <p className="text-foreground font-medium">No documents found</p>
-          <p className="text-muted-foreground text-sm mt-1">Documents will appear here when added</p>
-        </div>
+        <EmptyState icon={FolderOpen} title="No documents found" description="Documents will appear here when added." className="py-16 bg-card rounded-2xl border border-border" />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((doc, i) => {
@@ -142,7 +156,7 @@ export default function DocumentsPage() {
                 {canUpload && (
                   <button
                     onClick={() => handleDelete(doc.id)}
-                    className="absolute top-4 right-4 p-1.5 rounded-md hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 dark:hover:text-red-400 text-muted-foreground opacity-0 group-hover:opacity-100 transition-all"
+                    className="absolute top-4 right-4 p-1.5 rounded-md hover:bg-muted hover:text-foreground text-muted-foreground opacity-0 group-hover:opacity-100 transition-all"
                     title="Delete Document"
                   >
                     <X className="w-4 h-4" />
@@ -170,41 +184,63 @@ export default function DocumentsPage() {
         </div>
       )}
 
-      {/* Create Modal */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setShowForm(false)}>
-          <div className="bg-card rounded-2xl border border-border shadow-2xl w-full max-w-md p-6 animate-slide-up" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-bold text-foreground">Add Document</h2>
-              <button onClick={() => setShowForm(false)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
-            </div>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-1.5">Document Title *</label>
-                <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Annual Report 2025" className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-1.5">Category</label>
-                <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as DocumentCategory }))} className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30">
-                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-1.5">File URL / Path *</label>
-                <input value={form.file_url} onChange={e => setForm(f => ({ ...f, file_url: e.target.value }))} placeholder="https://... or /documents/file.pdf" className="w-full px-4 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30" />
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowForm(false)} className="flex-1 py-2.5 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
-                <button type="submit" disabled={submitting} className="flex-1 py-2.5 gradient-primary text-white rounded-xl text-sm font-semibold hover:opacity-90 flex items-center justify-center gap-2 disabled:opacity-70">
-                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Add Document'}
-                </button>
-              </div>
-            </form>
+      {/* Upload Modal */}
+      <Modal
+        isOpen={showForm}
+        onClose={() => setShowForm(false)}
+        title="Upload Document"
+        maxWidth="max-w-2xl"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="w-full sm:w-auto px-6 h-12 rounded-xl text-sm font-medium text-foreground hover:bg-muted border border-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form="document-form"
+              disabled={submitting}
+              className="w-full sm:w-auto px-6 h-12 rounded-xl text-sm font-medium bg-foreground text-background hover:bg-foreground/90 transition-colors disabled:opacity-70 flex items-center justify-center min-w-[160px]"
+            >
+              {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Upload className="w-4 h-4 mr-2" />Upload Document</>}
+            </button>
+          </>
+        }
+      >
+        <form id="document-form" onSubmit={handleCreate} className="space-y-6">
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-2">Document Title *</label>
+            <input
+              value={form.title}
+              onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+              placeholder="e.g. Annual Report 2025"
+              className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
+            />
           </div>
-        </div>
-      )}
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-2">Category</label>
+            <select
+              value={form.category}
+              onChange={e => setForm(f => ({ ...f, category: e.target.value as DocumentCategory }))}
+              className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
+            >
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-foreground block mb-2">File URL / Path *</label>
+            <input
+              value={form.file_url}
+              onChange={e => setForm(f => ({ ...f, file_url: e.target.value }))}
+              placeholder="https://... or /documents/file.pdf"
+              className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
+            />
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
