@@ -65,8 +65,12 @@ export default function DonationsPage() {
     try {
       const snap = await getDocs(query(collection(db, 'donations'), where('member_id', '==', member.id), orderBy('created_at', 'desc')));
       setMyDonations(snap.docs.map(d => ({ id: d.id, ...d.data() })) as Donation[]);
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error('Firebase Query Error:', {
+        code: error.code,
+        message: error.message,
+        details: error
+      });
       setMyError('Unable to load your donations.');
     }
     setMyLoading(false);
@@ -87,8 +91,12 @@ export default function DonationsPage() {
         return d;
       }));
       setReportedPayments(verifications);
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error('Firebase Query Error:', {
+        code: error.code,
+        message: error.message,
+        details: error
+      });
       setVerificationError('Unable to load verifications.');
     }
     setVerificationLoading(false);
@@ -113,8 +121,12 @@ export default function DonationsPage() {
         return d;
       }));
       setAllDonations(history);
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error('Firebase Query Error:', {
+        code: error.code,
+        message: error.message,
+        details: error
+      });
       setHistoryError('Unable to load donations.');
     }
     setHistoryLoading(false);

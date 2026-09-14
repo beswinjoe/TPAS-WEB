@@ -13,17 +13,20 @@ export async function createFirebaseUserAction(data: {
   sub_division: string | null;
   joining_date: string;
   status: string;
-  password?: string;
   adminUid: string;
 }) {
   try {
-    const email = `${data.employee_id.toLowerCase()}@tpas.internal`;
-    const password = data.password || 'tpas@2025';
+    // We normalize the pseudo-email to lowercase.
+    const email = `${data.employee_id.trim().toLowerCase()}@tpas.internal`;
+    
+    // Generate a secure temporary password (e.g., TPAS-XXXXXX)
+    const randomChars = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const temporaryPassword = `TPAS-${randomChars}`;
 
     // 1. Create Firebase Auth User
     const userRecord = await adminAuth.createUser({
       email,
-      password,
+      password: temporaryPassword,
       displayName: data.name,
     });
 
@@ -61,7 +64,7 @@ export async function createFirebaseUserAction(data: {
         created_at: new Date().toISOString(),
       });
 
-      return { success: true, uid };
+      return { success: true, uid, temporaryPassword };
     } catch (dbError: any) {
       // Rollback: Delete the auth user if Firestore fails
       console.error('Firestore creation failed, rolling back Auth user:', dbError);

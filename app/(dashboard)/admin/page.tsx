@@ -40,13 +40,13 @@ const CHART_COLORS = ['#171717', '#525252', '#737373', '#a3a3a3', '#d4d4d4'];
 type MemberForm = {
   employee_id: string; name: string; phone: string; email: string;
   role: Role; division: string; sub_division: string;
-  joining_date: string; status: string; password: string;
+  joining_date: string; status: string;
 };
 
 const EMPTY_FORM: MemberForm = {
   employee_id: '', name: '', phone: '', email: '',
   role: 'Member', division: '', sub_division: '',
-  joining_date: new Date().toISOString().split('T')[0], status: 'Active', password: 'tpas@2025',
+  joining_date: new Date().toISOString().split('T')[0], status: 'Active',
 };
 
 // Stat card — monochrome
@@ -217,19 +217,26 @@ export default function AdminPage() {
   function openAdd() { setEditMember(null); setForm(EMPTY_FORM); setShowForm(true); }
   function openEdit(m: Member) {
     setEditMember(m);
-    setForm({ ...EMPTY_FORM, employee_id: m.employee_id, name: m.name, phone: m.phone ?? '', email: m.email ?? '', role: m.role as Role, division: m.division ?? '', sub_division: m.sub_division ?? '', joining_date: m.joining_date ?? '', status: m.status, password: '' });
+    setForm({ ...EMPTY_FORM, employee_id: m.employee_id, name: m.name, phone: m.phone ?? '', email: m.email ?? '', role: m.role as Role, division: m.division ?? '', sub_division: m.sub_division ?? '', joining_date: m.joining_date ?? '', status: m.status });
     setShowForm(true);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.employee_id || !form.name) { toast.error('Employee ID and Name are required.'); return; }
+    
+    const email = form.email ? form.email.trim().toLowerCase() : '';
+    if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+      toast.error('Please enter a valid email address.');
+      return;
+    }
+
     setSubmitting(true);
 
     if (editMember) {
       try {
         await updateDoc(doc(db, 'members', editMember.id), {
-          employee_id: form.employee_id, name: form.name, phone: form.phone, email: form.email,
+          employee_id: form.employee_id, name: form.name, phone: form.phone, email: email,
           role: form.role, division: form.division || null, sub_division: form.sub_division || null,
           joining_date: form.joining_date, status: form.status,
         });
@@ -243,11 +250,12 @@ export default function AdminPage() {
     } else {
       const result = await createFirebaseUserAction({
         ...form,
+        email: email,
         adminUid: member!.id
       });
 
       if (result.success) {
-        toast.success('Member added successfully.');
+        toast.success(`Member added successfully. Temporary Password: ${result.temporaryPassword}`, { duration: 10000 });
         setShowForm(false);
         loadMembers();
       } else {
@@ -641,18 +649,6 @@ export default function AdminPage() {
                 className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
               />
             </div>
-            {!editMember && (
-              <div>
-                <label className="text-sm font-medium text-foreground block mb-2">Initial Password</label>
-                <input
-                  type="text"
-                  value={form.password}
-                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                  placeholder="tpas@2025"
-                  className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
-                />
-              </div>
-            )}
           </div>
 
           {/* RIGHT COLUMN */}

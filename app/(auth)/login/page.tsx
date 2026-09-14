@@ -127,7 +127,7 @@ export default function LoginPage() {
                       id="employeeId"
                       type="text"
                       value={employeeId}
-                      onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
+                      onChange={(e) => setEmployeeId(e.target.value)}
                       placeholder="Enter your employee ID"
                       className="w-full pl-9 pr-4 py-2.5 bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition-all text-sm"
                     />
