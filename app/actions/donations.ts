@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { DONATION_STATUS, CAN_MANAGE_DONATIONS } from '@/lib/constants';
 import type { Role } from '@/types';
 import { generateReceiptNumber } from '@/lib/utils';
-import { adminDb } from '@/lib/firebase/server';
+import { getAdminDb } from '@/lib/firebase/server';
 
 /**
  * Helper to get the currently authenticated member from the cookie
@@ -16,7 +16,7 @@ async function getAuthenticatedMember() {
   if (!memberId) return null;
 
   try {
-    const docSnap = await adminDb.collection('members').doc(memberId).get();
+    const docSnap = await getAdminDb().collection('members').doc(memberId).get();
     if (!docSnap.exists) return null;
     
     return { id: docSnap.id, ...docSnap.data() } as any;
@@ -49,7 +49,7 @@ export async function reportPayment(donationId: string, payload: {
   if (!member) return { error: 'Not authenticated' };
 
   try {
-    const donationRef = adminDb.collection('donations').doc(donationId);
+    const donationRef = getAdminDb().collection('donations').doc(donationId);
     const donationSnap = await donationRef.get();
     
     if (!donationSnap.exists) return { error: 'Donation not found' };
@@ -78,7 +78,7 @@ export async function reportPayment(donationId: string, payload: {
       reported_by: member.id
     });
 
-    await adminDb.collection('activity_logs').add({ 
+    await getAdminDb().collection('activity_logs').add({ 
       member_id: member.id, 
       action: 'REPORT_PAYMENT', 
       details: `Payment reported for ${payload.title || payload.year}`,
@@ -102,7 +102,7 @@ export async function confirmPayment(donationId: string) {
   }
 
   try {
-    const donationRef = adminDb.collection('donations').doc(donationId);
+    const donationRef = getAdminDb().collection('donations').doc(donationId);
     const donationSnap = await donationRef.get();
 
     if (!donationSnap.exists) return { error: 'Donation not found' };
@@ -117,11 +117,11 @@ export async function confirmPayment(donationId: string) {
       verified_at: new Date().toISOString()
     });
 
-    const memberSnap = await adminDb.collection('members').doc(donation.member_id).get();
+    const memberSnap = await getAdminDb().collection('members').doc(donation.member_id).get();
     const donorName = memberSnap.exists ? memberSnap.data()?.name : 'Unknown Member';
     const donorId = memberSnap.exists ? memberSnap.data()?.employee_id : 'Unknown ID';
 
-    await adminDb.collection('activity_logs').add({ 
+    await getAdminDb().collection('activity_logs').add({ 
       member_id: member.id, 
       action: 'VERIFY_PAYMENT', 
       details: `Payment confirmed for ${donorName} (${donorId})`,
@@ -145,7 +145,7 @@ export async function rejectPayment(donationId: string, reason: string) {
   }
 
   try {
-    const donationRef = adminDb.collection('donations').doc(donationId);
+    const donationRef = getAdminDb().collection('donations').doc(donationId);
     const donationSnap = await donationRef.get();
 
     if (!donationSnap.exists) return { error: 'Donation not found' };
@@ -158,10 +158,10 @@ export async function rejectPayment(donationId: string, reason: string) {
       rejected_at: new Date().toISOString()
     });
 
-    const memberSnap = await adminDb.collection('members').doc(donation.member_id).get();
+    const memberSnap = await getAdminDb().collection('members').doc(donation.member_id).get();
     const donorName = memberSnap.exists ? memberSnap.data()?.name : 'Unknown Member';
 
-    await adminDb.collection('activity_logs').add({ 
+    await getAdminDb().collection('activity_logs').add({ 
       member_id: member.id, 
       action: 'REJECT_PAYMENT', 
       details: `Payment rejected for ${donorName}. Reason: ${reason}`,
@@ -192,7 +192,7 @@ export async function createDonationRequest(payload: {
   }
 
   try {
-    await adminDb.collection('donations').add({
+    await getAdminDb().collection('donations').add({
       member_id: payload.member_id,
       year: payload.year,
       amount: payload.amount,
@@ -204,7 +204,7 @@ export async function createDonationRequest(payload: {
       created_at: new Date().toISOString()
     });
 
-    await adminDb.collection('activity_logs').add({ 
+    await getAdminDb().collection('activity_logs').add({ 
       member_id: member.id, 
       action: 'CREATE_DONATION', 
       details: `Created donation request: ${payload.title}`,

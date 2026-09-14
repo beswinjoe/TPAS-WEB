@@ -1,6 +1,6 @@
 'use server';
 
-import { adminAuth, adminDb } from '@/lib/firebase/server';
+import { getAdminAuth, getAdminDb } from '@/lib/firebase/server';
 import type { Role } from '@/types';
 
 export async function createFirebaseUserAction(data: {
@@ -26,7 +26,7 @@ export async function createFirebaseUserAction(data: {
     const temporaryPassword = data.password.trim();
 
     // 1. Create Firebase Auth User
-    const userRecord = await adminAuth.createUser({
+    const userRecord = await getAdminAuth().createUser({
       email,
       password: temporaryPassword,
       displayName: data.name,
@@ -36,7 +36,7 @@ export async function createFirebaseUserAction(data: {
 
     // 2. Create Member document and dependencies
     try {
-      await adminDb.collection('members').doc(uid).set({
+      await getAdminDb().collection('members').doc(uid).set({
         employee_id,
         name: data.name,
         phone: data.phone || null,
@@ -50,7 +50,7 @@ export async function createFirebaseUserAction(data: {
       });
 
       // 3. Create initial pending donation
-      await adminDb.collection('donations').add({
+      await getAdminDb().collection('donations').add({
         member_id: uid,
         year: new Date().getFullYear(),
         amount: 500,
@@ -59,7 +59,7 @@ export async function createFirebaseUserAction(data: {
       });
 
       // 4. Log activity
-      await adminDb.collection('activity_logs').add({
+      await getAdminDb().collection('activity_logs').add({
         member_id: data.adminUid,
         action: 'ADD_MEMBER',
         details: `Added new member: ${data.name} (${data.employee_id})`,
@@ -71,7 +71,7 @@ export async function createFirebaseUserAction(data: {
       // Rollback: Delete the auth user if Firestore fails
       console.error('Firestore creation failed, rolling back Auth user:', dbError);
       try {
-        await adminAuth.deleteUser(uid);
+        await getAdminAuth().deleteUser(uid);
       } catch (rollbackError) {
         console.error('CRITICAL: Failed to rollback Auth user after DB failure:', rollbackError);
       }
@@ -85,9 +85,9 @@ export async function createFirebaseUserAction(data: {
 
 export async function resetFirebaseUserPasswordAction(uid: string, newPassword: string, adminUid: string, memberName: string) {
   try {
-    await adminAuth.updateUser(uid, { password: newPassword });
+    await getAdminAuth().updateUser(uid, { password: newPassword });
     
-    await adminDb.collection('activity_logs').add({
+    await getAdminDb().collection('activity_logs').add({
       member_id: adminUid,
       action: 'RESET_PASSWORD',
       details: `Reset password for: ${memberName}`,
