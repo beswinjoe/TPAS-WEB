@@ -96,6 +96,7 @@ export default function AdminPage() {
   const [editMember, setEditMember] = useState<Member | null>(null);
   const [form, setForm] = useState<MemberForm>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
   
@@ -229,8 +230,7 @@ export default function AdminPage() {
 
   function openAdd() { 
     setEditMember(null); 
-    const randomChars = Math.random().toString(36).substring(2, 8).toUpperCase();
-    setForm({ ...EMPTY_FORM, password: `TPAS-${randomChars}` }); 
+    setForm({ ...EMPTY_FORM, password: '' }); 
     setShowForm(true); 
   }
   function openEdit(m: Member) {
@@ -243,10 +243,10 @@ export default function AdminPage() {
     e.preventDefault();
     if (!form.employee_id || !form.name) { toast.error('Employee ID and Name are required.'); return; }
     
-    // Validate Employee ID format
+    // Validate Employee ID format (letters, numbers, hyphens, @, $, &, #, _)
     const empId = form.employee_id.trim();
-    if (!/^[A-Za-z0-9-]+$/.test(empId)) {
-      toast.error('Employee ID can only contain letters, numbers, and hyphens.');
+    if (!/^[A-Za-z0-9@$&_#-]+$/.test(empId)) {
+      toast.error('Employee ID contains invalid characters.');
       return;
     }
 
@@ -271,6 +271,21 @@ export default function AdminPage() {
           }
         }
 
+        // If password is provided, reset it using the server action
+        if (form.password && form.password.trim().length > 0) {
+          if (form.password.trim().length < 8) {
+            toast.error('Password must be at least 8 characters long.');
+            setSubmitting(false);
+            return;
+          }
+          const pwResult = await resetFirebaseUserPasswordAction(editMember.id, form.password.trim(), member!.id, form.name);
+          if (!pwResult.success) {
+            toast.error(pwResult.error || 'Failed to update password.');
+            setSubmitting(false);
+            return;
+          }
+        }
+
         await updateDoc(doc(db, 'members', editMember.id), {
           employee_id: empId, name: form.name, phone: form.phone, email: email,
           role: form.role, division: form.division || null, sub_division: form.sub_division || null,
@@ -285,6 +300,12 @@ export default function AdminPage() {
       }
     } else {
       try {
+        if (!form.password || form.password.trim().length < 8) {
+          toast.error('Password is required and must be at least 8 characters long.');
+          setSubmitting(false);
+          return;
+        }
+
         // Duplicate check for new
         const q = query(collection(db, 'members'), where('employee_id', '==', empId));
         const snap = await getDocs(q);
@@ -776,44 +797,28 @@ export default function AdminPage() {
                 {['Active', 'Inactive', 'Pending'].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
-            {!editMember && (
-              <div>
-                <label className="text-sm font-medium text-foreground flex justify-between items-center mb-2">
-                  Temporary Password
-                  <button 
-                    type="button" 
-                    onClick={() => {
-                      const randomChars = Math.random().toString(36).substring(2, 8).toUpperCase();
-                      setForm(f => ({ ...f, password: `TPAS-${randomChars}` }));
-                    }}
-                    className="text-xs text-primary hover:underline"
-                  >
-                    [ Generate ]
-                  </button>
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={form.password || ''}
-                    readOnly
-                    placeholder="Click Generate"
-                    className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all pr-20"
-                  />
-                  {form.password && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(form.password!);
-                        toast.success('Password copied to clipboard!');
-                      }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground hover:text-foreground"
-                    >
-                      [ Copy ]
-                    </button>
-                  )}
-                </div>
+            <div>
+              <label className="text-sm font-medium text-foreground flex justify-between items-center mb-2">
+                {editMember ? 'Password' : 'Password *'}
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={form.password || ''}
+                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                  placeholder={editMember ? "Leave blank to keep current password" : "Enter password here"}
+                  className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all pr-12"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-lg flex items-center justify-center w-8 h-8 rounded-md transition-colors"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? '👁' : '👁‍🗨'}
+                </button>
               </div>
-            )}
+            </div>
           </div>
         </form>
       </Modal>

@@ -17,10 +17,13 @@ export async function createFirebaseUserAction(data: {
   adminUid: string;
 }) {
   try {
-    // We normalize the pseudo-email to lowercase.
+    if (!data.password || data.password.trim().length < 8) {
+      return { success: false, error: 'Password must be at least 8 characters long.' };
+    }
+
     const email = data.email || `${data.employee_id.trim().toLowerCase()}@tpas.internal`;
     const employee_id = data.employee_id.trim();
-    const temporaryPassword = data.password || `TPAS-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    const temporaryPassword = data.password.trim();
 
     // 1. Create Firebase Auth User
     const userRecord = await adminAuth.createUser({
