@@ -12,6 +12,7 @@ interface ModalProps {
   footer?: React.ReactNode;
   maxWidth?: string; // e.g. 'max-w-2xl' or 'max-w-4xl'
   className?: string; // For additional body styling if needed
+  centered?: boolean; // If true, modal is vertically centered (best for short forms)
 }
 
 export function Modal({ 
@@ -21,7 +22,8 @@ export function Modal({
   children, 
   footer, 
   maxWidth = 'max-w-[640px]', // Sensible default for normal forms
-  className
+  className,
+  centered = false
 }: ModalProps) {
   // Prevent body scrolling when modal is open
   useEffect(() => {
@@ -39,7 +41,10 @@ export function Modal({
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-fade-in" 
+      className={cn(
+        "fixed inset-0 z-50 flex justify-center bg-black/60 backdrop-blur-sm animate-fade-in",
+        centered ? "items-center p-4 sm:p-6" : "items-start overflow-y-auto py-6 px-4 sm:py-10 sm:px-6"
+      )}
       onClick={onClose}
     >
       <div 
@@ -67,7 +72,7 @@ export function Modal({
         </div>
 
         {/* Content - Scrollable & Flex-1 */}
-        <div className={cn("px-7 py-6 overflow-y-auto flex-1", className)}>
+        <div className={cn("px-7 py-6 overflow-y-auto flex-1 min-h-0", className)}>
           {children}
         </div>
 

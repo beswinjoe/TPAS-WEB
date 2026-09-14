@@ -209,6 +209,7 @@ export default function AnnouncementsPage() {
             </div>
           }
           maxWidth="max-w-2xl"
+          centered={true}
         >
           <div className="space-y-4">
             <p className="text-xs text-muted-foreground">{formatDate(selected.date)}</p>
@@ -223,6 +224,7 @@ export default function AnnouncementsPage() {
         onClose={() => setShowForm(false)}
         title="New Announcement"
         maxWidth="max-w-2xl"
+        centered={true}
         footer={
           <>
             <button
