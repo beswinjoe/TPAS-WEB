@@ -41,11 +41,10 @@ export function Modal({
       className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm animate-fade-in"
       onClick={onClose}
     >
-      <div className="min-h-full flex justify-center items-start p-4 sm:p-6">
+      <div className="min-h-screen flex items-start justify-center p-4 sm:p-6">
         <div
           className={cn(
             "bg-card w-full rounded-2xl shadow-2xl border border-border flex flex-col overflow-hidden animate-slide-up",
-            "max-h-[calc(100vh-2rem)]",
             maxWidth
           )}
           onClick={e => e.stopPropagation()}
@@ -65,7 +64,7 @@ export function Modal({
             </button>
           </div>
 
-          <div className={cn("px-7 py-6 overflow-y-auto min-h-0", className)}>
+          <div className={cn("px-7 py-6", className)}>
             {children}
           </div>
 
