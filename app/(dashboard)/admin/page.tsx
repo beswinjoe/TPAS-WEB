@@ -722,9 +722,16 @@ export default function AdminPage() {
                 value={form.division}
                 onChange={e => setForm(f => ({ ...f, division: e.target.value, sub_division: '' }))}
                 className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
+                disabled={divisions.length === 0}
               >
-                <option value="" disabled>Select Division</option>
-                {divisions.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                {divisions.length === 0 ? (
+                  <option value="" disabled>Loading divisions...</option>
+                ) : (
+                  <>
+                    <option value="" disabled>Select Division</option>
+                    {divisions.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                  </>
+                )}
               </select>
             </div>
             <div>
