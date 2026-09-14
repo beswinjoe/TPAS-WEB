@@ -72,11 +72,12 @@ export function Modal({
             </button>
           </div>
 
-          {/* BODY: scrolls when content overflows, but does NOT expand beyond its content.
-              - overflow-y-auto: scrollbar appears only when needed
-              - min-h-0: allows flex shrinking below content size
-              - NO flex-1: body does not stretch to fill unused space */}
-          <div className={cn("px-7 py-6 overflow-y-auto min-h-0", className)}>
+          {/* BODY: flex-1 fills remaining space after header+footer within max-h.
+              - min-h-0: allows shrinking below content size
+              - overflow-y-auto: scrollbar when content exceeds allocated space
+              - flex-1: in max-h-constrained container, body = max-h - header - footer.
+                In auto-height container (short forms), no extra space = no blank gap. */}
+          <div className={cn("px-7 py-6 overflow-y-auto flex-1 min-h-0", className)}>
             {children}
           </div>
 
