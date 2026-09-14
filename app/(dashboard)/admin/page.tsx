@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { createFirebaseUserAction, resetFirebaseUserPasswordAction } from '@/app/actions/admin';
 import { db } from '@/lib/firebase/client';
-import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, orderBy, limit, addDoc, getDoc, getCountFromServer } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, orderBy, limit, addDoc, getDoc, getCountFromServer, where } from 'firebase/firestore';
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
 import type { Member, Donation, Event, ActivityLog, Role } from '@/types';
@@ -40,13 +40,13 @@ const CHART_COLORS = ['#171717', '#525252', '#737373', '#a3a3a3', '#d4d4d4'];
 type MemberForm = {
   employee_id: string; name: string; phone: string; email: string;
   role: Role; division: string; sub_division: string;
-  joining_date: string; status: string;
+  joining_date: string; status: string; password?: string;
 };
 
 const EMPTY_FORM: MemberForm = {
   employee_id: '', name: '', phone: '', email: '',
   role: 'Member', division: '', sub_division: '',
-  joining_date: new Date().toISOString().split('T')[0], status: 'Active',
+  joining_date: new Date().toISOString().split('T')[0], status: 'Active', password: '',
 };
 
 // Stat card — monochrome
@@ -105,8 +105,21 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (role === 'Admin') {
-      getDocs(collection(db, 'divisions')).then(snap => setDivisions(snap.docs.map(d => ({ id: d.id, ...d.data() })) as any));
-      getDocs(collection(db, 'sub_divisions')).then(snap => setSubDivisions(snap.docs.map(d => ({ id: d.id, ...d.data() })) as any));
+      console.log("[TPAS] divisions query started");
+      getDocs(collection(db, 'divisions')).then(snap => {
+        console.log("[TPAS] divisions loaded", snap.docs.length, snap.docs);
+        setDivisions(snap.docs.map(d => ({ id: d.id, ...d.data() })) as any);
+      }).catch(error => {
+        console.error("[TPAS] divisions FAILED", { code: error.code, message: error.message });
+      });
+
+      console.log("[TPAS] sub_divisions query started");
+      getDocs(collection(db, 'sub_divisions')).then(snap => {
+        console.log("[TPAS] sub_divisions loaded", snap.docs.length, snap.docs);
+        setSubDivisions(snap.docs.map(d => ({ id: d.id, ...d.data() })) as any);
+      }).catch(error => {
+        console.error("[TPAS] sub_divisions FAILED", { code: error.code, message: error.message });
+      });
     }
   }, [role]);
 
@@ -214,7 +227,12 @@ export default function AdminPage() {
     return Object.entries(roleMap).map(([name, value]) => ({ name, value }));
   }, [members]);
 
-  function openAdd() { setEditMember(null); setForm(EMPTY_FORM); setShowForm(true); }
+  function openAdd() { 
+    setEditMember(null); 
+    const randomChars = Math.random().toString(36).substring(2, 8).toUpperCase();
+    setForm({ ...EMPTY_FORM, password: `TPAS-${randomChars}` }); 
+    setShowForm(true); 
+  }
   function openEdit(m: Member) {
     setEditMember(m);
     setForm({ ...EMPTY_FORM, employee_id: m.employee_id, name: m.name, phone: m.phone ?? '', email: m.email ?? '', role: m.role as Role, division: m.division ?? '', sub_division: m.sub_division ?? '', joining_date: m.joining_date ?? '', status: m.status });
@@ -225,6 +243,13 @@ export default function AdminPage() {
     e.preventDefault();
     if (!form.employee_id || !form.name) { toast.error('Employee ID and Name are required.'); return; }
     
+    // Validate Employee ID format
+    const empId = form.employee_id.trim();
+    if (!/^[A-Za-z0-9-]+$/.test(empId)) {
+      toast.error('Employee ID can only contain letters, numbers, and hyphens.');
+      return;
+    }
+
     const email = form.email ? form.email.trim().toLowerCase() : '';
     if (email && !/^\S+@\S+\.\S+$/.test(email)) {
       toast.error('Please enter a valid email address.');
@@ -235,8 +260,19 @@ export default function AdminPage() {
 
     if (editMember) {
       try {
+        // Simple duplicate check for edit (only if ID changed)
+        if (empId !== editMember.employee_id) {
+          const q = query(collection(db, 'members'), where('employee_id', '==', empId));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            toast.error('This Employee ID is already in use by another member.');
+            setSubmitting(false);
+            return;
+          }
+        }
+
         await updateDoc(doc(db, 'members', editMember.id), {
-          employee_id: form.employee_id, name: form.name, phone: form.phone, email: email,
+          employee_id: empId, name: form.name, phone: form.phone, email: email,
           role: form.role, division: form.division || null, sub_division: form.sub_division || null,
           joining_date: form.joining_date, status: form.status,
         });
@@ -248,18 +284,34 @@ export default function AdminPage() {
         console.error(error);
       }
     } else {
-      const result = await createFirebaseUserAction({
-        ...form,
-        email: email,
-        adminUid: member!.id
-      });
+      try {
+        // Duplicate check for new
+        const q = query(collection(db, 'members'), where('employee_id', '==', empId));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          toast.error('This Employee ID is already in use.');
+          setSubmitting(false);
+          return;
+        }
 
-      if (result.success) {
-        toast.success(`Member added successfully. Temporary Password: ${result.temporaryPassword}`, { duration: 10000 });
-        setShowForm(false);
-        loadMembers();
-      } else {
-        toast.error(result.error || 'Failed to add member.');
+        const result = await createFirebaseUserAction({
+          ...form,
+          employee_id: empId,
+          email: email,
+          password: form.password,
+          adminUid: member!.id
+        });
+
+        if (result.success) {
+          toast.success(`Member added successfully.`);
+          setShowForm(false);
+          loadMembers();
+        } else {
+          toast.error(result.error || 'Failed to add member.');
+        }
+      } catch (error: any) {
+        toast.error(error.message || 'Failed to add member.');
+        console.error(error);
       }
     }
     setSubmitting(false);
@@ -659,36 +711,46 @@ export default function AdminPage() {
                 type="text"
                 value={form.employee_id}
                 onChange={e => setForm(f => ({ ...f, employee_id: e.target.value }))}
-                placeholder="e.g. 1234455"
+                placeholder="e.g. TPAS-2026-001"
                 disabled={!!editMember}
                 className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground disabled:opacity-60 transition-all"
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-foreground block mb-2">Division</label>
+              <label className="text-sm font-medium text-foreground block mb-2">Division *</label>
               <select
                 value={form.division}
                 onChange={e => setForm(f => ({ ...f, division: e.target.value, sub_division: '' }))}
                 className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
               >
-                <option value="">Select Division</option>
-                {divisions.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
+                <option value="" disabled>Select Division</option>
+                {divisions.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-sm font-medium text-foreground block mb-2">Sub Division</label>
+              <label className="text-sm font-medium text-foreground block mb-2">Sub Division *</label>
               <select
                 value={form.sub_division}
                 onChange={e => setForm(f => ({ ...f, sub_division: e.target.value }))}
                 disabled={!form.division}
                 className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground disabled:opacity-50 transition-all"
               >
-                <option value="">Select Sub Division</option>
-                {subDivisions.filter(sd => sd.division_id === divisions.find(d => d.name === form.division)?.id).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                {!form.division ? (
+                  <option value="" disabled>Select Division first</option>
+                ) : (
+                  <>
+                    <option value="" disabled>Select Sub Division</option>
+                    {(() => {
+                       const relatedSub = subDivisions.filter(sd => sd.division_id === divisions.find(d => d.name === form.division)?.id);
+                       if (relatedSub.length === 0) return <option value="" disabled>No sub-divisions available</option>;
+                       return relatedSub.map(s => <option key={s.id} value={s.name}>{s.name}</option>);
+                    })()}
+                  </>
+                )}
               </select>
             </div>
             <div>
-              <label className="text-sm font-medium text-foreground block mb-2">Role</label>
+              <label className="text-sm font-medium text-foreground block mb-2">Role *</label>
               <select
                 value={form.role}
                 onChange={e => setForm(f => ({ ...f, role: e.target.value as Role }))}
@@ -698,7 +760,7 @@ export default function AdminPage() {
               </select>
             </div>
             <div>
-              <label className="text-sm font-medium text-foreground block mb-2">Status</label>
+              <label className="text-sm font-medium text-foreground block mb-2">Status *</label>
               <select
                 value={form.status}
                 onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
@@ -707,6 +769,44 @@ export default function AdminPage() {
                 {['Active', 'Inactive', 'Pending'].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
+            {!editMember && (
+              <div>
+                <label className="text-sm font-medium text-foreground flex justify-between items-center mb-2">
+                  Temporary Password
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      const randomChars = Math.random().toString(36).substring(2, 8).toUpperCase();
+                      setForm(f => ({ ...f, password: `TPAS-${randomChars}` }));
+                    }}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    [ Generate ]
+                  </button>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={form.password || ''}
+                    readOnly
+                    placeholder="Click Generate"
+                    className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all pr-20"
+                  />
+                  {form.password && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(form.password!);
+                        toast.success('Password copied to clipboard!');
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground hover:text-foreground"
+                    >
+                      [ Copy ]
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </form>
       </Modal>

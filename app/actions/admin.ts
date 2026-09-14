@@ -13,15 +13,14 @@ export async function createFirebaseUserAction(data: {
   sub_division: string | null;
   joining_date: string;
   status: string;
+  password?: string;
   adminUid: string;
 }) {
   try {
     // We normalize the pseudo-email to lowercase.
-    const email = `${data.employee_id.trim().toLowerCase()}@tpas.internal`;
-    
-    // Generate a secure temporary password (e.g., TPAS-XXXXXX)
-    const randomChars = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const temporaryPassword = `TPAS-${randomChars}`;
+    const email = data.email || `${data.employee_id.trim().toLowerCase()}@tpas.internal`;
+    const employee_id = data.employee_id.trim();
+    const temporaryPassword = data.password || `TPAS-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
     // 1. Create Firebase Auth User
     const userRecord = await adminAuth.createUser({
@@ -35,14 +34,14 @@ export async function createFirebaseUserAction(data: {
     // 2. Create Member document and dependencies
     try {
       await adminDb.collection('members').doc(uid).set({
-        employee_id: data.employee_id,
+        employee_id,
         name: data.name,
-        phone: data.phone,
-        email: data.email,
+        phone: data.phone || null,
+        email,
         role: data.role,
-        division: data.division,
-        sub_division: data.sub_division,
-        joining_date: data.joining_date,
+        division: data.division || null,
+        sub_division: data.sub_division || null,
+        joining_date: data.joining_date || null,
         status: data.status,
         created_at: new Date().toISOString(),
       });
