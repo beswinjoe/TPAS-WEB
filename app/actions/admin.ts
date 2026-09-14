@@ -79,7 +79,7 @@ export async function createFirebaseUserAction(data: {
     }
   } catch (error: any) {
     console.error('Error creating user:', error);
-    return { success: false, error: error.message };
+    return { success: false, error: error?.message || 'An unknown error occurred.' };
   }
 }
 
@@ -96,6 +96,7 @@ export async function resetFirebaseUserPasswordAction(uid: string, newPassword: 
     
     return { success: true };
   } catch (error: any) {
-    return { success: false, error: error.message };
+    console.error('Error resetting password:', error);
+    return { success: false, error: error?.message || 'An unknown error occurred.' };
   }
 }
