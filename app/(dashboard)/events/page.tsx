@@ -258,7 +258,6 @@ export default function EventsPage() {
         onClose={() => setShowForm(false)}
         title="New Event"
         maxWidth="max-w-2xl"
-        centered={true}
         footer={
           <>
             <button
