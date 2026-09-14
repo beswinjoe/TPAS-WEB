@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -23,6 +24,12 @@ export function Modal({
   maxWidth = 'max-w-[640px]',
   className
 }: ModalProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -34,17 +41,17 @@ export function Modal({
     };
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
+  const modalContent = (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-[9999] overflow-y-auto bg-black/60 backdrop-blur-sm animate-fade-in"
       onClick={onClose}
     >
       <div className="min-h-screen flex items-start justify-center p-4 sm:p-6">
         <div
           className={cn(
-            "bg-card w-full rounded-2xl shadow-2xl border border-border flex flex-col overflow-hidden animate-slide-up",
+            "bg-card w-full rounded-2xl shadow-2xl border border-border flex flex-col overflow-hidden",
             maxWidth
           )}
           onClick={e => e.stopPropagation()}
@@ -77,4 +84,6 @@ export function Modal({
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }
