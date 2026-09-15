@@ -10,7 +10,12 @@ envStr.split('\n').forEach(line => {
   const match = line.match(/^([^=]+)="?(.*?)"?$/);
   if (match) {
     if (match[1] === 'FIREBASE_PRIVATE_KEY') {
-       process.env[match[1]] = match[2].replace(/\\n/g, '\n');
+       let key = match[2];
+       if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+         key = key.substring(1, key.length - 1);
+       }
+       key = key.replace(/\\n/g, '\n').replace(/\\r\\n/g, '\n').replace(/\r\n/g, '\n').trim();
+       process.env[match[1]] = key;
     } else {
        process.env[match[1]] = match[2];
     }
