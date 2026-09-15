@@ -1,9 +1,6 @@
 'use server';
 
-export async function createFirebaseUserAction(data: {
-  employee_id: string;
-  name: string;
-}) {
+export async function createFirebaseUserAction(data: any) {
   console.error('[TPAS ACTION] REACHED');
   console.error('[TPAS ACTION] employee:', data.employee_id);
   
