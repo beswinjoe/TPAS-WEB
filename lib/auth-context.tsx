@@ -2,7 +2,6 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { Member, Role } from '@/types';
-import { setSessionCookie, clearSessionCookie } from '@/app/actions/auth';
 import { auth, db } from '@/lib/firebase/client';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence, browserSessionPersistence, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
@@ -46,11 +45,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const memberData = docSnap.data() as Member;
         memberData.id = docSnap.id;
         setMember(memberData);
-        // Ensure server action cookie is synced
-        await setSessionCookie(uid); 
+        // Ensure session cookie is synced robustly via API route
+        await fetch('/api/auth/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid })
+        });
       } else {
         await auth.signOut();
-        await clearSessionCookie();
+        await fetch('/api/auth/session', { method: 'DELETE' });
         setMember(null);
       }
     } catch (e) {
@@ -100,7 +103,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Failed to log activity', e);
     }
 
-    await setSessionCookie(uid);
+    await fetch('/api/auth/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid })
+    });
     setMember(memberData);
     return { error: null };
   }
@@ -126,10 +133,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (err: any) {
       setLoading(false);
       console.error(err);
+      
+      const errorMessage = err?.message || '';
+      
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
         return { error: 'Invalid Employee ID or password.' };
       }
-      return { error: 'An unexpected error occurred. Please try again.' };
+      
+      if (errorMessage.includes('not found on the server') || errorMessage.includes('Server Action')) {
+        return { error: 'The application has been updated. Please refresh the page to log in.' };
+      }
+      
+      return { error: 'An unexpected error occurred during login. Please try again or refresh the page.' };
     }
   }
 
@@ -146,6 +161,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (err: any) {
       setLoading(false);
       console.error(err);
+      
+      const errorMessage = err?.message || '';
+      if (errorMessage.includes('not found on the server') || errorMessage.includes('Server Action')) {
+        return { error: 'The application has been updated. Please refresh the page to log in.' };
+      }
+      
       if (err.code === 'auth/popup-closed-by-user') {
         return { error: 'Sign-in cancelled.' };
       }
@@ -168,7 +189,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     
     await signOut(auth);
-    await clearSessionCookie();
+    await fetch('/api/auth/session', { method: 'DELETE' });
     setMember(null);
   }
 
