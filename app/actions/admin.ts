@@ -16,7 +16,7 @@ async function getAuthenticatedAdmin() {
     throw new Error('Not authenticated.');
   }
 
-  const db = getAdminDb();
+  const db = await getAdminDb();
   const docSnap = await db.collection('members').doc(memberId).get();
   
   if (!docSnap.exists) {
@@ -32,7 +32,7 @@ async function getAuthenticatedAdmin() {
     throw new Error('Forbidden: Admin access required.');
   }
 
-  const auth = getAdminAuth();
+  const auth = await getAdminAuth();
   const authRecord = await auth.getUser(memberId);
   if (authRecord.disabled) {
     throw new Error('Authentication account is disabled.');
@@ -68,8 +68,8 @@ export async function createFirebaseUserAction(data: {
     const employee_id = data.employee_id.trim();
     const password = data.password.trim();
 
-    const db = getAdminDb();
-    const auth = getAdminAuth();
+    const db = await getAdminDb();
+    const auth = await getAdminAuth();
 
     // Duplicate Check
     const duplicateCheck = await db.collection('members').where('employee_id', '==', employee_id).get();
@@ -135,8 +135,8 @@ export async function resetFirebaseUserPasswordAction(uid: string, newPassword: 
       return { success: false, error: 'Password must be at least 8 characters long.' };
     }
 
-    const auth = getAdminAuth();
-    const db = getAdminDb();
+    const auth = await getAdminAuth();
+    const db = await getAdminDb();
 
     await auth.updateUser(uid, { password: newPassword.trim() });
     

@@ -1,9 +1,6 @@
-import { initializeApp, getApps, cert, getApp } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
-import { getStorage } from 'firebase-admin/storage';
-
-function initFirebaseAdmin() {
+async function getFirebaseAdminApp() {
+  const { getApps, initializeApp, cert, getApp } = await import('firebase-admin/app');
+  
   if (getApps().length > 0) {
     return getApp();
   }
@@ -22,18 +19,20 @@ function initFirebaseAdmin() {
   });
 }
 
-// Export getter functions to prevent module-level crashes during Server Action loading
-export const getAdminAuth = () => {
-  initFirebaseAdmin();
+export async function getAdminAuth() {
+  await getFirebaseAdminApp();
+  const { getAuth } = await import('firebase-admin/auth');
   return getAuth();
-};
+}
 
-export const getAdminDb = () => {
-  initFirebaseAdmin();
+export async function getAdminDb() {
+  await getFirebaseAdminApp();
+  const { getFirestore } = await import('firebase-admin/firestore');
   return getFirestore();
-};
+}
 
-export const getAdminStorage = () => {
-  initFirebaseAdmin();
+export async function getAdminStorage() {
+  await getFirebaseAdminApp();
+  const { getStorage } = await import('firebase-admin/storage');
   return getStorage();
-};
+}
