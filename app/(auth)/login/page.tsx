@@ -62,7 +62,9 @@ export default function LoginPage() {
             Secure Portal
           </p>
           <Link href="/" className="inline-flex items-center gap-3 group">
-            <Image src="/images/logo.jpg" alt="TPAS Logo" width={36} height={36} className="rounded-lg" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-background border shadow-sm">
+              <Image src="/logo.png" alt="TPAS Logo" width={32} height={32} className="rounded-lg" />
+            </div>
             <div className="text-left">
               <p className="font-bold text-foreground text-sm leading-tight group-hover:opacity-80 transition-opacity">TPAS</p>
               <p className="text-muted-foreground text-xs leading-tight">Kanniyakumari</p>
