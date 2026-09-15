@@ -5,11 +5,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       { protocol: 'https', hostname: 'firebasestorage.googleapis.com' },
     ],
-  },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-
+  }
 };
 
 export default nextConfig;

@@ -278,7 +278,7 @@ export default function AdminPage() {
             setSubmitting(false);
             return;
           }
-          const pwResult = await resetFirebaseUserPasswordAction(editMember.id, form.password.trim(), member!.id, form.name);
+          const pwResult = await resetFirebaseUserPasswordAction(editMember.id, form.password.trim(), form.name);
           if (!pwResult.success) {
             toast.error(pwResult.error || 'Failed to update password.');
             setSubmitting(false);
@@ -319,8 +319,7 @@ export default function AdminPage() {
           ...form,
           employee_id: empId,
           email: email,
-          password: form.password,
-          adminUid: member!.id
+          password: form.password
         });
 
         if (result.success) {
@@ -353,13 +352,16 @@ export default function AdminPage() {
   }
 
   async function handleResetPassword(m: Member) {
-    const newPassword = prompt(`Enter new password for ${m.name}:\n(Leave blank to use default 'tpas@2025')`, 'tpas@2025');
-    if (newPassword === null) return;
+    const newPassword = prompt(`Enter new password for ${m.name}:\n(Leave blank to cancel)`);
+    if (!newPassword || newPassword.trim().length === 0) return;
     
-    const finalPassword = newPassword.trim() || 'tpas@2025';
+    if (newPassword.trim().length < 8) {
+      toast.error('Password must be at least 8 characters long.');
+      return;
+    }
 
     setResetting(m.id);
-    const result = await resetFirebaseUserPasswordAction(m.id, finalPassword, member!.id, m.name);
+    const result = await resetFirebaseUserPasswordAction(m.id, newPassword.trim(), m.name);
     
     if (!result.success) { 
       toast.error(result.error || 'Failed to reset password.'); 
