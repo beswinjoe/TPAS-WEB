@@ -1,18 +1,19 @@
 'use server';
 
+import type { Role } from '@/types';
+
 export async function createFirebaseUserAction(data: any) {
-  console.error('[TPAS ACTION] REACHED');
-  console.error('[TPAS ACTION] employee:', data.employee_id);
-  
+  console.error('[TPAS DEBUG] TYPE IMPORT TEST');
+
   return {
     success: false,
-    error: 'PURE_SERVER_ACTION_SUCCESS'
+    error: 'TYPE_IMPORT_SUCCESS'
   };
 }
 
 export async function resetFirebaseUserPasswordAction(uid: string, newPassword: string, adminUid: string, memberName: string) {
   return {
     success: false,
-    error: 'PURE_SERVER_ACTION_RESET'
+    error: 'TYPE_IMPORT_SUCCESS'
   };
 }
