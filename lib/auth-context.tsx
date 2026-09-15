@@ -113,7 +113,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function login(employeeId: string, password: string, remember: boolean, loginType: 'Member' | 'Admin' = 'Member'): Promise<{ error: string | null }> {
-    setLoading(true);
     try {
       // 1. Convert employeeId to pseudo-email (replace @ to avoid double @ for cases like admin@id)
       const sanitizedId = employeeId.toLowerCase().replace(/@/g, '_');
@@ -128,10 +127,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // 4. Verify & Authorize
       const result = await verifyAndAuthorizeUser(userCredential.user, loginType);
       
-      setLoading(false);
       return result;
     } catch (err: any) {
-      setLoading(false);
       console.error(err);
       
       const errorMessage = err?.message || '';
@@ -149,17 +146,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function loginWithGoogle(loginType: 'Member' | 'Admin' = 'Member'): Promise<{ error: string | null }> {
-    setLoading(true);
     try {
       const provider = new GoogleAuthProvider();
       const userCredential = await signInWithPopup(auth, provider);
       
       const result = await verifyAndAuthorizeUser(userCredential.user, loginType);
       
-      setLoading(false);
       return result;
     } catch (err: any) {
-      setLoading(false);
       console.error(err);
       
       const errorMessage = err?.message || '';
