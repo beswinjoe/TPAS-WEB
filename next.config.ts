@@ -5,7 +5,8 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       { protocol: 'https', hostname: 'firebasestorage.googleapis.com' },
     ],
-  }
+  },
+  serverExternalPackages: ['firebase-admin']
 };
 
 export default nextConfig;
