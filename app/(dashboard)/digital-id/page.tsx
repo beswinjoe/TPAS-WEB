@@ -45,7 +45,7 @@ export default function DigitalIdPage() {
           <div className="relative px-6 pt-6 pb-4 text-center border-b border-white/10">
             <div className="relative z-10 flex items-center justify-center gap-3 mb-2">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white border border-gray-100 shadow-sm overflow-hidden shrink-0">
-                <Image src="/logo.jpg" alt="TPAS Logo" width={32} height={32} className="rounded-lg" />
+                <Image src="/logo.png" alt="TPAS Logo" width={32} height={32} className="rounded-lg" />
               </div>
               <div className="text-left">
                 <p className="text-white font-bold text-sm leading-tight">TPAS</p>

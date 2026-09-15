@@ -12,7 +12,7 @@ export default function HomePage() {
           <div className="flex justify-center mb-8">
             <div className="p-3 rounded-2xl border border-border bg-card shadow-sm">
               <Image
-                src="/logo.jpg"
+                src="/logo.png"
                 alt="TPAS Logo"
                 width={56}
                 height={56}
