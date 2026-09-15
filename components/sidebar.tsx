@@ -55,7 +55,7 @@ export function Sidebar({ collapsed, mobileOpen, onCollapse, onMobileClose, load
       )}>
         <div className="relative shrink-0">
           <Image
-            src="/logo.png"
+            src="/logo.jpg"
             alt="TPAS Logo"
             width={collapsed ? 32 : 36}
             height={collapsed ? 32 : 36}
