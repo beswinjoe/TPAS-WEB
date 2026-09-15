@@ -1,102 +1,20 @@
 'use server';
 
-import { getAdminAuth, getAdminDb } from '@/lib/firebase/server';
-import type { Role } from '@/types';
+export async function createFirebaseUserAction(data: any) {
+  console.error('[TPAS TEST] createFirebaseUserAction reached');
+  console.error('[TPAS TEST] keys:', Object.keys(data || {}));
 
-export async function createFirebaseUserAction(data: {
-  employee_id: string;
-  name: string;
-  phone: string;
-  email: string;
-  role: Role;
-  division: string | null;
-  sub_division: string | null;
-  joining_date: string;
-  status: string;
-  password?: string;
-  adminUid: string;
-}) {
-  try {
-    if (!data.password || data.password.trim().length < 8) {
-      return { success: false, error: 'Password must be at least 8 characters long.' };
-    }
-
-    const email = data.email || `${data.employee_id.trim().toLowerCase()}@tpas.internal`;
-    const employee_id = data.employee_id.trim();
-    const temporaryPassword = data.password.trim();
-
-    // 1. Create Firebase Auth User
-    const userRecord = await getAdminAuth().createUser({
-      email,
-      password: temporaryPassword,
-      displayName: data.name,
-    });
-
-    const uid = userRecord.uid;
-
-    // 2. Create Member document and dependencies
-    try {
-      await getAdminDb().collection('members').doc(uid).set({
-        employee_id,
-        name: data.name,
-        phone: data.phone || null,
-        email,
-        role: data.role,
-        division: data.division || null,
-        sub_division: data.sub_division || null,
-        joining_date: data.joining_date || null,
-        status: data.status,
-        created_at: new Date().toISOString(),
-      });
-
-      // 3. Create initial pending donation
-      await getAdminDb().collection('donations').add({
-        member_id: uid,
-        year: new Date().getFullYear(),
-        amount: 500,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-      });
-
-      // 4. Log activity
-      await getAdminDb().collection('activity_logs').add({
-        member_id: data.adminUid,
-        action: 'ADD_MEMBER',
-        details: `Added new member: ${data.name} (${data.employee_id})`,
-        created_at: new Date().toISOString(),
-      });
-
-      return { success: true, uid, temporaryPassword };
-    } catch (dbError: any) {
-      // Rollback: Delete the auth user if Firestore fails
-      console.error('Firestore creation failed, rolling back Auth user:', dbError);
-      try {
-        await getAdminAuth().deleteUser(uid);
-      } catch (rollbackError) {
-        console.error('CRITICAL: Failed to rollback Auth user after DB failure:', rollbackError);
-      }
-      return { success: false, error: 'Database error. Account creation was rolled back.' };
-    }
-  } catch (error: any) {
-    console.error('Error creating user:', error);
-    return { success: false, error: error?.message || 'An unknown error occurred.' };
-  }
+  return {
+    success: false,
+    error: 'SERVER_ACTION_TEST'
+  };
 }
 
 export async function resetFirebaseUserPasswordAction(uid: string, newPassword: string, adminUid: string, memberName: string) {
-  try {
-    await getAdminAuth().updateUser(uid, { password: newPassword });
-    
-    await getAdminDb().collection('activity_logs').add({
-      member_id: adminUid,
-      action: 'RESET_PASSWORD',
-      details: `Reset password for: ${memberName}`,
-      created_at: new Date().toISOString(),
-    });
-    
-    return { success: true };
-  } catch (error: any) {
-    console.error('Error resetting password:', error);
-    return { success: false, error: error?.message || 'An unknown error occurred.' };
-  }
+  console.error('[TPAS TEST] resetFirebaseUserPasswordAction reached');
+
+  return {
+    success: false,
+    error: 'SERVER_ACTION_TEST_RESET'
+  };
 }
