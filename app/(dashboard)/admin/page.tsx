@@ -41,12 +41,14 @@ type MemberForm = {
   employee_id: string; name: string; phone: string; email: string;
   role: Role; division: string; sub_division: string;
   joining_date: string; status: string; password?: string;
+  custom_division?: string; custom_sub_division?: string;
 };
 
 const EMPTY_FORM: MemberForm = {
   employee_id: '', name: '', phone: '', email: '',
   role: 'Member', division: '', sub_division: '',
   joining_date: new Date().toISOString().split('T')[0], status: 'Active', password: '',
+  custom_division: '', custom_sub_division: '',
 };
 
 // Stat card — monochrome
@@ -256,6 +258,24 @@ export default function AdminPage() {
       return;
     }
 
+    let finalDivision = form.division;
+    if (finalDivision === 'Others') {
+      if (!form.custom_division?.trim()) {
+        toast.error('Please enter a custom division.');
+        return;
+      }
+      finalDivision = form.custom_division.trim();
+    }
+
+    let finalSubDivision = form.sub_division;
+    if (finalSubDivision === 'Others') {
+      if (!form.custom_sub_division?.trim()) {
+        toast.error('Please enter a custom sub-division.');
+        return;
+      }
+      finalSubDivision = form.custom_sub_division.trim();
+    }
+
     setSubmitting(true);
 
     if (editMember) {
@@ -288,7 +308,7 @@ export default function AdminPage() {
 
         await updateDoc(doc(db, 'members', editMember.id), {
           employee_id: empId, name: form.name, phone: form.phone, email: email,
-          role: form.role, division: form.division || null, sub_division: form.sub_division || null,
+          role: form.role, division: finalDivision || null, sub_division: finalSubDivision || null,
           joining_date: form.joining_date, status: form.status,
         });
         toast.success('Member updated.');
@@ -319,7 +339,9 @@ export default function AdminPage() {
           ...form,
           employee_id: empId,
           email: email,
-          password: form.password
+          password: form.password,
+          division: finalDivision || null,
+          sub_division: finalSubDivision || null,
         });
 
         if (result.success) {
@@ -743,19 +765,33 @@ export default function AdminPage() {
               <label className="text-sm font-medium text-foreground block mb-2">Division *</label>
               <select
                 value={form.division}
-                onChange={e => setForm(f => ({ ...f, division: e.target.value, sub_division: '' }))}
+                onChange={e => setForm(f => ({ ...f, division: e.target.value, sub_division: e.target.value === 'Others' ? 'Others' : '' }))}
                 className="w-full px-4 h-12 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
-                disabled={divisions.length === 0}
+                disabled={divisions.length === 0 && !form.division}
               >
-                {divisions.length === 0 ? (
+                {divisions.length === 0 && !form.division ? (
                   <option value="" disabled>Loading divisions...</option>
                 ) : (
                   <>
                     <option value="" disabled>Select Division</option>
                     {divisions.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                    {form.division && form.division !== 'Others' && !divisions.find(d => d.name === form.division) && (
+                      <option value={form.division}>{form.division}</option>
+                    )}
+                    <option value="Others">Others (Type manually)</option>
                   </>
                 )}
               </select>
+              {form.division === 'Others' && (
+                <input
+                  type="text"
+                  placeholder="Enter custom division"
+                  value={form.custom_division || ''}
+                  onChange={e => setForm(f => ({ ...f, custom_division: e.target.value }))}
+                  className="w-full px-4 h-12 mt-3 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
+                  autoFocus
+                />
+              )}
             </div>
             <div>
               <label className="text-sm font-medium text-foreground block mb-2">Sub Division *</label>
@@ -767,6 +803,8 @@ export default function AdminPage() {
               >
                 {!form.division ? (
                   <option value="" disabled>Select Division first</option>
+                ) : form.division === 'Others' ? (
+                  <option value="Others">Others (Type manually)</option>
                 ) : (
                   <>
                     <option value="" disabled>Select Sub Division</option>
@@ -775,9 +813,23 @@ export default function AdminPage() {
                        if (relatedSub.length === 0) return <option value="" disabled>No sub-divisions available</option>;
                        return relatedSub.map(s => <option key={s.id} value={s.name}>{s.name}</option>);
                     })()}
+                    {form.sub_division && form.sub_division !== 'Others' && !subDivisions.find(s => s.name === form.sub_division) && (
+                      <option value={form.sub_division}>{form.sub_division}</option>
+                    )}
+                    <option value="Others">Others (Type manually)</option>
                   </>
                 )}
               </select>
+              {form.sub_division === 'Others' && (
+                <input
+                  type="text"
+                  placeholder="Enter custom sub division"
+                  value={form.custom_sub_division || ''}
+                  onChange={e => setForm(f => ({ ...f, custom_sub_division: e.target.value }))}
+                  className="w-full px-4 h-12 mt-3 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-foreground/20 focus:border-foreground transition-all"
+                  autoFocus
+                />
+              )}
             </div>
             <div>
               <label className="text-sm font-medium text-foreground block mb-2">Role *</label>

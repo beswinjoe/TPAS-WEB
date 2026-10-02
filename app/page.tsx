@@ -63,7 +63,7 @@ export default function HomePage() {
           {' '}Support
         </p>
         <p className="text-xs text-muted-foreground/40 mt-2">
-          © {new Date().getFullYear()} TPAS Kanniyakumari
+          copyright @hyperqube
         </p>
       </footer>
     </div>

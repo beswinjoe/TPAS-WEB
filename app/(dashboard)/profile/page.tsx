@@ -19,8 +19,10 @@ export default function ProfilePage() {
   const [form, setForm] = useState({
     name: member?.name ?? '',
     employee_id: member?.employee_id ?? '',
-    division_id: member?.division_id ?? '',
-    sub_division_id: member?.sub_division_id ?? '',
+    division: member?.division ?? '',
+    sub_division: member?.sub_division ?? '',
+    custom_division: '',
+    custom_sub_division: '',
     role: member?.role ?? '',
     phone: member?.phone ?? '',
     email: member?.email ?? '',
@@ -49,10 +51,29 @@ export default function ProfilePage() {
     setSaving(true);
     const updateData: any = { phone: form.phone, email: form.email };
     if (member?.role === 'Admin') {
+      let finalDivision = form.division;
+      if (finalDivision === 'Others') {
+        if (!form.custom_division?.trim()) {
+          toast.error('Please enter a custom division.');
+          setSaving(false);
+          return;
+        }
+        finalDivision = form.custom_division.trim();
+      }
+      let finalSubDivision = form.sub_division;
+      if (finalSubDivision === 'Others') {
+        if (!form.custom_sub_division?.trim()) {
+          toast.error('Please enter a custom sub-division.');
+          setSaving(false);
+          return;
+        }
+        finalSubDivision = form.custom_sub_division.trim();
+      }
+
       updateData.name = form.name;
       updateData.employee_id = form.employee_id;
-      updateData.division_id = form.division_id || null;
-      updateData.sub_division_id = form.sub_division_id || null;
+      updateData.division = finalDivision || null;
+      updateData.sub_division = finalSubDivision || null;
       updateData.role = form.role;
     }
 
@@ -182,27 +203,67 @@ export default function ProfilePage() {
                     <Building2 className="w-3.5 h-3.5 inline mr-1" />Division
                   </label>
                   <select
-                    value={form.division_id}
-                    onChange={e => setForm(f => ({ ...f, division_id: e.target.value, sub_division_id: '' }))}
+                    value={form.division}
+                    onChange={e => setForm(f => ({ ...f, division: e.target.value, sub_division: e.target.value === 'Others' ? 'Others' : '' }))}
                     className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
                   >
                     <option value="">Select Division</option>
-                    {divisions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    {divisions.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                    {form.division && form.division !== 'Others' && !divisions.find(d => d.name === form.division) && (
+                      <option value={form.division}>{form.division}</option>
+                    )}
+                    <option value="Others">Others (Type manually)</option>
                   </select>
+                  {form.division === 'Others' && (
+                    <input
+                      type="text"
+                      placeholder="Enter custom division"
+                      value={form.custom_division}
+                      onChange={e => setForm(f => ({ ...f, custom_division: e.target.value }))}
+                      className="w-full px-3 py-2.5 mt-2 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                      autoFocus
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">
                     <Building2 className="w-3.5 h-3.5 inline mr-1" />Sub Division
                   </label>
                   <select
-                    value={form.sub_division_id}
-                    onChange={e => setForm(f => ({ ...f, sub_division_id: e.target.value }))}
-                    disabled={!form.division_id}
+                    value={form.sub_division}
+                    onChange={e => setForm(f => ({ ...f, sub_division: e.target.value }))}
+                    disabled={!form.division}
                     className="w-full px-3 py-2.5 bg-muted/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all disabled:opacity-50"
                   >
-                    <option value="">Select Sub Division</option>
-                    {subDivisions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    {!form.division ? (
+                      <option value="">Select Division first</option>
+                    ) : form.division === 'Others' ? (
+                      <option value="Others">Others (Type manually)</option>
+                    ) : (
+                      <>
+                        <option value="">Select Sub Division</option>
+                        {(() => {
+                           const relatedSub = subDivisions.filter(sd => sd.division_id === divisions.find(d => d.name === form.division)?.id);
+                           if (relatedSub.length === 0) return <option value="" disabled>No sub-divisions available</option>;
+                           return relatedSub.map(s => <option key={s.id} value={s.name}>{s.name}</option>);
+                        })()}
+                        {form.sub_division && form.sub_division !== 'Others' && !subDivisions.find(s => s.name === form.sub_division) && (
+                          <option value={form.sub_division}>{form.sub_division}</option>
+                        )}
+                        <option value="Others">Others (Type manually)</option>
+                      </>
+                    )}
                   </select>
+                  {form.sub_division === 'Others' && (
+                    <input
+                      type="text"
+                      placeholder="Enter custom sub division"
+                      value={form.custom_sub_division}
+                      onChange={e => setForm(f => ({ ...f, custom_sub_division: e.target.value }))}
+                      className="w-full px-3 py-2.5 mt-2 bg-muted/50 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                      autoFocus
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1">
