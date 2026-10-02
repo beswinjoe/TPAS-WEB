@@ -565,18 +565,27 @@ export default function DashboardPage() {
                 {currentYear} Donation
               </h3>
             </div>
-            <p className={cn('text-2xl font-bold', donationStatus?.status === DONATION_STATUS.PAID ? 'text-foreground' : 'text-muted-foreground')}>
-              {formatCurrency(donationStatus?.amount ?? 500)}
-            </p>
-            <p className={cn('text-sm mt-1', donationStatus?.status === DONATION_STATUS.PAID ? 'text-foreground' : 'text-muted-foreground')}>
-              {donationStatus?.status === DONATION_STATUS.PAID
-                ? `Paid on ${formatDate(donationStatus.payment_date!)}`
-                : `Due — Please pay before Dec 31, ${currentYear}`}
-            </p>
-            {donationStatus?.status !== DONATION_STATUS.PAID && (
-              <Link href="/donations" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-foreground hover:underline">
-                Pay Now <ArrowRight className="w-3 h-3" />
-              </Link>
+            {donationStatus ? (
+              <>
+                <p className={cn('text-2xl font-bold', donationStatus.status === DONATION_STATUS.PAID ? 'text-foreground' : 'text-muted-foreground')}>
+                  {formatCurrency(donationStatus.amount)}
+                </p>
+                <p className={cn('text-sm mt-1', donationStatus.status === DONATION_STATUS.PAID ? 'text-foreground' : 'text-muted-foreground')}>
+                  {donationStatus.status === DONATION_STATUS.PAID
+                    ? `Paid on ${formatDate(donationStatus.payment_date!)}`
+                    : `Due — Please pay before ${donationStatus.due_date ? formatDate(donationStatus.due_date) : `Dec 31, ${currentYear}`}`}
+                </p>
+                {donationStatus.status !== DONATION_STATUS.PAID && (
+                  <Link href="/donations" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-foreground hover:underline">
+                    Pay Now <ArrowRight className="w-3 h-3" />
+                  </Link>
+                )}
+              </>
+            ) : (
+              <div>
+                <p className="text-2xl font-bold text-muted-foreground">₹0</p>
+                <p className="text-sm mt-1 text-muted-foreground">No pending requests for {currentYear}</p>
+              </div>
             )}
           </div>
         </div>
